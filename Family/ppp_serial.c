@@ -2,21 +2,24 @@
  * Copyright (c) 2000 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- *
- * The contents of this file constitute Original Code as defined in and
- * are subject to the Apple Public Source License Version 1.1 (the
- * "License").  You may not use this file except in compliance with the
- * License.  Please obtain a copy of the License at
- * http://www.apple.com/publicsource and read it before using this file.
- *
- * This Original Code and all software distributed under the License are
- * distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY KIND, EITHER
+ * 
+ * Copyright (c) 1999-2003 Apple Computer, Inc.  All Rights Reserved.
+ * 
+ * This file contains Original Code and/or Modifications of Original Code
+ * as defined in and that are subject to the Apple Public Source License
+ * Version 2.0 (the 'License'). You may not use this file except in
+ * compliance with the License. Please obtain a copy of the License at
+ * http://www.opensource.apple.com/apsl/ and read it before using this
+ * file.
+ * 
+ * The Original Code and all software distributed under the License are
+ * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
  * INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE OR NON-INFRINGEMENT.  Please see the
- * License for the specific language governing rights and limitations
- * under the License.
- *
+ * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
+ * Please see the License for the specific language governing rights and
+ * limitations under the License.
+ * 
  * @APPLE_LICENSE_HEADER_END@
  */
 
@@ -227,7 +230,7 @@ static void	pppserial_getm(struct pppserial *ld);
 static void	pppserial_logchar(struct pppserial *, int);
 static int	pppserial_lk_output(struct ppp_link *link, struct mbuf *m);
 static int 	pppserial_lk_ioctl(struct ppp_link *link, u_int32_t cmd, void *data);
-static int 	pppserial_attach(void *ttyp, struct ppp_link **link);
+static int 	pppserial_attach(struct tty *ttyp, struct ppp_link **link);
 static int 	pppserial_detach(struct ppp_link *link);
 static int 	pppserial_findfreeunit(u_short *freeunit);
 
@@ -362,7 +365,7 @@ int pppserial_findfreeunit(u_short *freeunit)
 
 /* -----------------------------------------------------------------------------
 ----------------------------------------------------------------------------- */
-int pppserial_attach(void *ttyp, struct ppp_link **link)
+int pppserial_attach(struct tty *ttyp, struct ppp_link **link)
 {
     int 		ret;
     u_short 		unit;
@@ -374,12 +377,12 @@ int pppserial_attach(void *ttyp, struct ppp_link **link)
     // Note : we allocate/find number/insert in queue in that specific order
     // because of funnels and race condition issues
 
-    MALLOC(ld, struct pppserial *, sizeof(struct pppserial), M_DEVBUF, M_WAITOK);
+    MALLOC(ld, struct pppserial *, sizeof(struct pppserial), M_TEMP, M_WAITOK);
     if (!ld)
         return ENOMEM;
 
     if (pppserial_findfreeunit(&unit)) {
-        FREE(ld, M_DEVBUF);
+        FREE(ld, M_TEMP);
         return ENOMEM;
     }
         
@@ -394,7 +397,7 @@ int pppserial_attach(void *ttyp, struct ppp_link **link)
     lk->lk_mru 		= PPP_MTU; //PPP_MAXMRU;
     lk->lk_type 	= PPP_TYPE_SERIAL;
     lk->lk_hdrlen 	= PPP_HDRLEN;
-    //ld->link_lk_baudrate = tp->t_ospeed;
+    lk->lk_baudrate     = ttyp->t_ospeed;
     lk->lk_ioctl 	= pppserial_lk_ioctl;
     lk->lk_output 	= pppserial_lk_output;
     lk->lk_unit 	= unit;
@@ -413,7 +416,7 @@ int pppserial_attach(void *ttyp, struct ppp_link **link)
         thread_funnel_switch(NETWORK_FUNNEL, KERNEL_FUNNEL);
         log(LOG_INFO, "pppserial_attach, error = %d, (ld = 0x%x)\n", ret, &ld->link);
         TAILQ_REMOVE(&pppserial_head, ld, next);
-        FREE(ld, M_DEVBUF);
+        FREE(ld, M_TEMP);
         return ret;
     }
     thread_funnel_switch(NETWORK_FUNNEL, KERNEL_FUNNEL);
@@ -461,7 +464,7 @@ int pppserial_detach(struct ppp_link *link)
     thread_funnel_switch(KERNEL_FUNNEL, NETWORK_FUNNEL);
     ppp_link_detach(link);
     thread_funnel_switch(NETWORK_FUNNEL, KERNEL_FUNNEL);
-    FREE(ld, M_DEVBUF);
+    FREE(ld, M_TEMP);
     return 0;
 }
 
@@ -489,7 +492,7 @@ void pppisr_thread_continue(void)
 
     thread_funnel_set(kernel_flock, funnel_state);
 
-    thread_terminate_self();
+    thread_terminate(current_act());
     /* NOTREACHED */
 }
 
