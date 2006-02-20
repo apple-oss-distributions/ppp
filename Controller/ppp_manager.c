@@ -2298,6 +2298,7 @@ void ppp_updatephase(struct ppp *ppp, int phase)
   if (ppp->statusfd[READ] == -1)
       return;
 
+
     /* check for new phase */
     if (phase == ppp->phase)
         return;

@@ -62,7 +62,7 @@
  * OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#define RCSID	"$Id: options.c,v 1.20 2005/02/27 21:10:15 lindak Exp $"
+#define RCSID	"$Id: options.c,v 1.20.26.1 2005/10/28 22:47:01 lindak Exp $"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -122,6 +122,7 @@ char	user[MAXNAMELEN];	/* Username for PAP */
 bool	controlled = 0;		/* Is pppd controlled by the PPPController ?  */
 FILE 	*controlfile = NULL;	/* file descriptor for options and control */
 int 	controlfd = -1;		/* file descriptor for options and control */
+uid_t 	controlfd_uid = -1;	/* uid at the other end of the control file descriptor*/
 int 	statusfd = -1;		/* file descriptor status update */
 char	username[MAXNAMELEN];	/* copy original user */
 char	new_passwd[MAXSECRETLEN];	/* new password for protocol supporting changing password */
@@ -1678,7 +1679,8 @@ loadplugin(argv)
     err = sys_loadplugin(*argv);
     if (err) {
 	option_error("Couldn't load plugin %s", arg);
-        return 0;
+		// continue without loading plugin
+        return 1;
     }
 
     //info("Plugin %s loaded.", arg);
@@ -1702,7 +1704,7 @@ options_from_controller()
     char cmd[MAXWORDLEN];
 
     oldpriv = privileged_option;
-    privileged_option = controlled;
+    privileged_option = (controlfd_uid == 0);
     option_source = "controller";
     option_priority = OPRIO_CMDLINE;
     ret = 0;
@@ -1748,12 +1750,12 @@ controlled_connection(argv)
     char **argv;
 {
     
-	if (!sys_check_controller()) {
-		option_error("Can't verify the controller started the connection");
-		goto err;
-	}
-	
-	/* first pipe STDIN */
+    int				len;
+	struct xucred   xucred;
+
+    /* first pipe STDIN */
+    
+
     controlfd = dup(STDIN_FILENO);
     if (controlfd == -1) {
 	option_error("Can't duplicate control file descripor: %m");
@@ -1767,6 +1769,15 @@ controlled_connection(argv)
 	goto err;
     }
     
+	len = sizeof(xucred);
+	xucred.cr_uid = 7;
+	if (getsockopt(controlfd, 0, LOCAL_PEERCRED, &xucred, &len) == -1) {
+		option_error("Cannot get LOCAL_PEERCRED on control file descriptor (%m)\n");
+		goto err;
+	}
+
+    controlfd_uid = xucred.cr_uid;
+
     /* then pipe STDOUT */
 
     statusfd = dup(STDOUT_FILENO);

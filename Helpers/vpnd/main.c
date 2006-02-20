@@ -116,6 +116,7 @@ int main (int argc, char *argv[])
 	exit(EXIT_NOT_ROOT);
     }
     
+
     params = (struct vpn_params*)malloc(sizeof (struct vpn_params));
     if (params == 0)
         exit(EXIT_FATAL_ERROR);
@@ -271,7 +272,7 @@ static int spawn(struct vpn_params *params)
     
         switch (pidChild = fork ()) {
             case 0:		// in child
-                execve(PATH_VPND, args, (char *)0);		// launch it
+                execv(PATH_VPND, args);		// launch it
                 break;
             case -1:		// error
                 vpnlog(LOG_ERR, "Attempt to fork new vpnd failed\n") ;

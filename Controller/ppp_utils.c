@@ -302,7 +302,7 @@ u_int32_t CFStringAddrToLong(CFStringRef string)
     if (string) {
 	str[0] = 0;
         CFStringGetCString(string, str, sizeof(str), kCFStringEncodingMacRoman);
-        ret = inet_addr(str);
+        ret = ntohl(inet_addr(str));
     }
     return ret;
 }

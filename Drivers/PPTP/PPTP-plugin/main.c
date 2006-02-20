@@ -564,7 +564,7 @@ int pptp_connect(int *errorcode)
         bzero(&addr, sizeof(addr));
         addr.sin_len = sizeof(addr);
         addr.sin_family = AF_INET;
-        addr.sin_port = PPTP_TCP_PORT;
+        addr.sin_port = htons(PPTP_TCP_PORT);
         addr.sin_addr = peeraddress; 
 
         while (connect(ctrlsockfd, (struct sockaddr *)&addr, sizeof(addr))) {
@@ -617,7 +617,7 @@ int pptp_connect(int *errorcode)
         bzero(&addr, sizeof(addr));
         addr.sin_len = sizeof(addr);
         addr.sin_family = AF_INET;
-        addr.sin_port = PPTP_TCP_PORT;
+        addr.sin_port = htons(PPTP_TCP_PORT);
         addr.sin_addr.s_addr = INADDR_ANY; 
         if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
             error("PPTP bind failed, %m");
@@ -668,7 +668,7 @@ int pptp_connect(int *errorcode)
     bzero(&addr, sizeof(addr));
     addr.sin_len = sizeof(addr);
     addr.sin_family = AF_INET;
-    addr.sin_port = PPTP_TCP_PORT;
+    addr.sin_port = htons(PPTP_TCP_PORT);
     addr.sin_addr = peeraddress; 
 
     /* open the data socket */
@@ -882,7 +882,7 @@ u_long load_kext(char *kext)
     if (pid == 0) {
         closeall();
         // PPP kernel extension not loaded, try load it...
-        execle("/sbin/kextload", "kextload", kext, (char *)0, (char *)0);
+        execl("/sbin/kextload", "kextload", kext, (char *)0);
         exit(1);
     }
 
@@ -986,7 +986,7 @@ int pptp_set_peer_route()
     bzero(&addr, sizeof(addr));
     addr.sin_len = sizeof(addr);
     addr.sin_family = AF_INET;
-    addr.sin_port = PPTP_TCP_PORT;
+    addr.sin_port = htons(PPTP_TCP_PORT);
     addr.sin_addr = peeraddress; 
     ref = SCNetworkReachabilityCreateWithAddress(NULL, (struct sockaddr *)&addr);
     is_peer_local = SCNetworkReachabilityGetFlags(ref, &flags) && (flags & kSCNetworkFlagsIsDirect);

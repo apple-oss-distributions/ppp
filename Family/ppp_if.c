@@ -846,9 +846,6 @@ errno_t ppp_if_output(ifnet_t ifp, mbuf_t m)
 	
 	lck_mtx_lock(ppp_domain_mutex);
 	    
-	// clear any flag that can confuse the underlying driver
-	mbuf_setflags(m, mbuf_flags(m) & ~(M_BCAST + M_MCAST));
-
     proto = ntohs(*(u_int16_t*)mbuf_data(m));
     switch (proto) {
         case PPP_IP:
@@ -907,7 +904,7 @@ errno_t ppp_if_output(ifnet_t ifp, mbuf_t m)
 			ifnet_stat_increment(ifp, &statsinc);		
             return ENOBUFS;
         }
-        *(u_int16_t*)mbuf_data(m) = 0xFF03;
+        *(u_int16_t*)mbuf_data(m) = htons(0xFF03);
 		(*wan->bpf_output)(ifp, m);
         mbuf_adj(m, 2);
     }
@@ -1085,7 +1082,7 @@ int ppp_if_detachlink(struct ppp_link *link)
 int ppp_if_send(ifnet_t ifp, mbuf_t m)
 {
     struct ppp_if 	*wan = ifnet_softc(ifp);
-    u_int16_t		proto = *(u_int16_t*)mbuf_data(m);	// always the 2 first bytes
+    u_int16_t		proto = ntohs(*(u_int16_t*)mbuf_data(m));	// always the 2 first bytes
 	struct			ifnet_stat_increment_param statsinc;
 	
 	lck_mtx_assert(ppp_domain_mutex, LCK_MTX_ASSERT_OWNED);
@@ -1119,10 +1116,10 @@ int ppp_if_send(ifnet_t ifp, mbuf_t m)
                     vjtype = sl_compress_tcp(mp, ip, wan->vjcomp, !(wan->sc_flags & SC_NO_TCP_CCID));
                     switch (vjtype) {
                         case TYPE_UNCOMPRESSED_TCP:
-                            *(u_int16_t*)mbuf_data(m) = PPP_VJC_UNCOMP; // update protocol
+                            *(u_int16_t*)mbuf_data(m) = htons(PPP_VJC_UNCOMP); // update protocol
                             break;
                         case TYPE_COMPRESSED_TCP:
-                            *(u_int16_t*)mbuf_data(m) = PPP_VJC_COMP; // header has moved, update protocol
+                            *(u_int16_t*)mbuf_data(m) = htons(PPP_VJC_COMP); // header has moved, update protocol
                         break;
                     }
                     // adjust packet len
@@ -1149,7 +1146,7 @@ int ppp_if_send(ifnet_t ifp, mbuf_t m)
 				ifnet_stat_increment(ifp, &statsinc);		
                 return ENOBUFS;
             }
-            *(u_int16_t*)mbuf_data(m) = PPP_COMP; // update protocol
+            *(u_int16_t*)mbuf_data(m) = htons(PPP_COMP); // update protocol
         } 
     } 
 

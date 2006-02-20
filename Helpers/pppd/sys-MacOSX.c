@@ -42,7 +42,7 @@
  * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-#define RCSID	"$Id: sys-MacOSX.c,v 1.38 2005/03/11 05:48:32 lindak Exp $"
+#define RCSID	"$Id: sys-MacOSX.c,v 1.38.20.1 2005/12/07 23:34:09 lindak Exp $"
 
 /* -----------------------------------------------------------------------------
   Includes
@@ -99,7 +99,6 @@
 #include <IOKit/network/IONetworkInterface.h>
 #include <IOKit/network/IOEthernetController.h>
 #include <servers/bootstrap.h>
-#include <bsm/libbsm.h>
 
 #include "pppcontroller.h"
 #include <ppp/pppcontroller_types.h>
@@ -267,7 +266,7 @@ u_long load_kext(char *kext)
     if (pid == 0) {
         closeall();
         // PPP kernel extension not loaded, try load it...
-        execle("/sbin/kextload", "kextload", kext, (char *)0, (char *)0);
+        execl("/sbin/kextload", "kextload", kext, (char *)0);
         exit(1);
     }
 
@@ -285,47 +284,6 @@ preinitialize options, called before sysinit
 void sys_install_options()
 {
     add_options(sys_options);
-}
-
-/* -----------------------------------------------------------------------------
------------------------------------------------------------------------------ */
-int sys_check_controller()
-{
-	mach_port_t			server;
-	kern_return_t		status;
-	int					result;
-	audit_token_t		audit_token;
-	uid_t               euid;
-
-	status = bootstrap_look_up(bootstrap_port, PPPCONTROLLER_SERVER, &server);
-	switch (status) {
-		case BOOTSTRAP_SUCCESS :
-			/* service currently registered, "a good thing" (tm) */
-			break;
-		case BOOTSTRAP_UNKNOWN_SERVICE :
-			/* service not currently registered, try again later */
-			return 0;
-		default :
-			return 0;
-	}
-	
-	status = pppcontroller_iscontrolled(server, &result, &audit_token);
-
-	if (status == KERN_SUCCESS) {
-		audit_token_to_au32(audit_token,
-					NULL,			// auidp
-					&euid,			// euid
-					NULL,			// egid
-					NULL,			// ruid
-					NULL,			// rgid
-					NULL,			// pid
-					NULL,			// asid
-					NULL);			// tid
-
-		return ((result == kSCStatusOK) && (euid == 0));
-	}
-
-	return 0;
 }
 
 /* -------------------------------------------------------------------------------------------
@@ -1203,7 +1161,7 @@ void output(int unit, u_char *p, int len)
     
     // link protocol are sent to the link
     // other protocols are send to the bundle
-    if (write((*(u_short*)p >= 0xC000) ? ppp_fd : ppp_sockfd, p, len) < 0) {
+    if (write((ntohs(*(u_short*)p) >= 0xC000) ? ppp_fd : ppp_sockfd, p, len) < 0) {
 	if (errno != EIO)
 	    error("write: %m");
     }
@@ -3194,4 +3152,22 @@ route_gateway(int cmd, struct in_addr dest, struct in_addr mask, struct in_addr 
 
     close(sockfd);
     return (1);
+}
+
+/* -----------------------------------------------------------------------------
+    return uid of the local socket file descriptor
+------------------------------------------------------------------------- */
+uid_t
+fd_local_uid(int fd)
+{
+	int				len;
+	struct xucred   xucred;
+
+	len = sizeof(xucred);
+	if (getsockopt(STDIN_FILENO, 0, LOCAL_PEERCRED, &xucred, &len) == 0) {
+		return xucred.cr_uid;
+	}
+
+	return -1;
+
 }

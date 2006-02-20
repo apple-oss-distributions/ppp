@@ -62,7 +62,7 @@
  * OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#define RCSID	"$Id: main.c,v 1.33 2005/03/11 05:48:32 lindak Exp $"
+#define RCSID	"$Id: main.c,v 1.33.20.1 2005/10/18 22:22:06 lindak Exp $"
 
 #include <stdio.h>
 #include <ctype.h>
@@ -352,6 +352,7 @@ main(argc, argv)
     link_stats_valid = 0;
     new_phase(PHASE_INITIALIZE);
 
+	
     script_env = NULL;
 
     /* Initialize syslog facilities */
@@ -370,7 +371,7 @@ main(argc, argv)
     privileged = uid == 0;
 #ifdef __APPLE__
 	if (!privileged)
-		privileged = sys_check_controller();
+		privileged = fd_local_uid(STDIN_FILENO) == 0;
 #endif
     slprintf(numbuf, sizeof(numbuf), "%d", uid);
     script_setenv("ORIG_UID", numbuf, 0);
@@ -983,6 +984,7 @@ handle_events()
 {
     struct timeval timo;
     sigset_t mask;
+
 
     kill_link = open_ccp_flag = 0;
 #ifdef __APPLE__
@@ -2108,7 +2110,7 @@ device_script(program, in, out, dont_wait)
     setgid(getgid());
 	}
 #endif
-    execle("/bin/sh", "sh", "-c", program, (char *)0, (char *)0);
+    execl("/bin/sh", "sh", "-c", program, (char *)0);
     error("could not exec /bin/sh: %m");
     exit(99);
     /* NOTREACHED */

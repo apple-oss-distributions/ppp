@@ -290,9 +290,9 @@ racoon_start(CFBundleRef bundle, char *filename)
         
         // need to exec a tool, with complete parameters list
         if (name[0])
-            execle("/usr/sbin/racoon", "racoon", "-f", name, (char *)0, (char *)0);
+            execl("/usr/sbin/racoon", "racoon", "-f", name, (char *)0);
         else
-            execle("/usr/sbin/racoon", "racoon", (char *)0, (char *)0);
+            execl("/usr/sbin/racoon", "racoon", (char *)0);
             
         // child exits
         exit(0);
@@ -554,14 +554,8 @@ configure_remote(int level, FILE *file, CFDictionaryRef ipsec_dict, char **errst
 					FAIL("incorrect phase 1 exchange mode");
 			}
 		}
-		if (nb == 0) {
-			char str[256];
-			/* default mode is main except if local identifier is defined */
-			if (GetStrFromDict(ipsec_dict, kRASPropIPSecLocalIdentifier, str, sizeof(str), ""))
-				strcat(text, "aggressive");
-			else 
-				strcat(text, "main");
-		}
+		if (nb == 0)
+			strcat(text, "main");
 		strcat(text, ";\n");
 		WRITE(text);
 	}
@@ -614,25 +608,9 @@ configure_remote(int level, FILE *file, CFDictionaryRef ipsec_dict, char **errst
 	*/
 	{
 		char	str[256];
-		char	str1[256];
-
-		if (GetStrFromDict(ipsec_dict, CFSTR("LocalIdentifierType"), str1, sizeof(str1), "")) {
-			if (!strcmp(str1, "FQDN"))
-				strcpy(str1, "fqdn");
-			else if (!strcmp(str1, "UserFQDN"))
-				strcpy(str1, "user_fqdn");
-			else if (!strcmp(str1, "KeyID"))
-				strcpy(str1, "keyid_use");
-			else if (!strcmp(str1, "Address"))
-				strcpy(str1, "address");
-			else if (!strcmp(str1, "ASN1DN"))
-				strcpy(str1, "asn1dn");
-			else 
-				strcpy(str1, "");
-		}
 		
 		if (GetStrFromDict(ipsec_dict, kRASPropIPSecLocalIdentifier, str, sizeof(str), "")) {
-			sprintf(text, "my_identifier %s \"%s\";\n", str1[0] ? str1 : "fqdn", str);
+			sprintf(text, "my_identifier fqdn \"%s\";\n", str);
 			WRITE(text);
 		}
 		else {

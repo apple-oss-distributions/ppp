@@ -37,7 +37,7 @@
  * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-#define RCSID	"$Id: eap.c,v 1.22 2005/05/20 23:27:49 lindak Exp $"
+#define RCSID	"$Id: eap.c,v 1.22.8.1 2005/10/28 22:47:01 lindak Exp $"
 
 #include <stdio.h>
 #include <string.h>
@@ -1390,7 +1390,8 @@ eaploadplugin(argv)
     err = sys_eaploadplugin(*argv, eap);
     if (err) {
 	option_error("Couldn't load EAP plugin %s", arg);
-        return 0;
+		// continue without loading plugin
+        return 1;
     }
 
     if (eap->init == 0 || eap->dispose == 0 || eap->process == 0) {

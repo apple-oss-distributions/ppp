@@ -216,7 +216,7 @@ static u_long load_kext(char *kext)
     if (pid == 0) {
         closeall();
         // PPP kernel extension not loaded, try load it...
-        execle("/sbin/kextload", "kextload", kext, (char *)0, (char *)0);
+        execl("/sbin/kextload", "kextload", kext, (char *)0);
         exit(1);
     }
 

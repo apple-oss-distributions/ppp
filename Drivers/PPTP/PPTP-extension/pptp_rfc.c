@@ -473,7 +473,7 @@ u_int16_t handle_data(struct pptp_rfc *rfc, mbuf_t m, u_int32_t from)
         if (p->flags_vers & PPTP_GRE_FLAGS_A) {	// handle window
 
             // depending if seq is present, take ack at the appropriate offset
-            ack = (p->flags & PPTP_GRE_FLAGS_S) ? p->ack_num : p->seq_num;
+            ack = (p->flags & PPTP_GRE_FLAGS_S) ? ntohl(p->ack_num) : ntohl(p->seq_num);
  
             //log(LOGVAL, "handle_data, contains ACK for packet = %d (rfc->our_last_seq = %d, rfc->our_last_seq_acked + 1 = %d)\n", ack, rfc->our_last_seq, rfc->our_last_seq_acked + 1);
             if (SEQ_GT(ack, rfc->our_last_seq_acked)
@@ -505,25 +505,25 @@ u_int16_t handle_data(struct pptp_rfc *rfc, mbuf_t m, u_int32_t from)
         if (p->flags & PPTP_GRE_FLAGS_S) {
             size += 4;
 
-            //log(LOGVAL, "handle_data, contains SEQ packet = %d (rfc->peer_last_seq = %d)\n", p->seq_num, rfc->peer_last_seq);
+            //log(LOGVAL, "handle_data, contains SEQ packet = %d (rfc->peer_last_seq = %d)\n", ntohl(p->seq_num), rfc->peer_last_seq);
 
             if ((rfc->state & PPTP_STATE_PEERSTARTED) == 0) {
-                rfc->peer_last_seq = p->seq_num - 1;	// initial peer_last_sequence
+                rfc->peer_last_seq = ntohl(p->seq_num) - 1;	// initial peer_last_sequence
                 rfc->state |= PPTP_STATE_PEERSTARTED;
             }
                 
             // check for packets out of sequence
             // could optionnally reorder packets
-            if (SEQ_GT(p->seq_num, rfc->peer_last_seq)) {
+            if (SEQ_GT(ntohl(p->seq_num), rfc->peer_last_seq)) {
             
-                if (rfc->peer_last_seq + 1 != p->seq_num) { 
+                if (rfc->peer_last_seq + 1 != ntohl(p->seq_num)) { 
  
-                    //log(LOGVAL, "handle_data, contains unexpected SEQ  = %d (rfc->peer_last_seq = %d)\n", p->seq_num, rfc->peer_last_seq);
+                    //log(LOGVAL, "handle_data, contains unexpected SEQ  = %d (rfc->peer_last_seq = %d)\n", ntohl(p->seq_num), rfc->peer_last_seq);
                    if (rfc->eventcb)
                         (*rfc->eventcb)(rfc->host, PPTP_EVT_INPUTERROR, 0);
                 }
                 
-                rfc->peer_last_seq = p->seq_num;
+                rfc->peer_last_seq = ntohl(p->seq_num);
                 rfc->state |= PPTP_STATE_NEW_SEQUENCE;
                 mbuf_adj(m, size);
                 // packet is passed up to the host
