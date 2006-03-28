@@ -41,7 +41,7 @@
  * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-#define RCSID	"$Id: acscp.c,v 1.9 2004/12/01 02:27:59 lindak Exp $"
+#define RCSID	"$Id: acscp.c,v 1.9.56.1 2006/02/09 06:27:43 lindak Exp $"
 
 
 #include <stdio.h>
@@ -498,7 +498,7 @@ acscp_nakci(fsm *f, u_char *p, int len)
 	len -= cilen; \
 	INCPTR(2, p); \
 	GETLONG(l, p); \
-	ciroutes_vers = htonl(l); \
+	ciroutes_vers = l; \
 	no.neg = 1; \
 	code \
     }
@@ -511,7 +511,7 @@ acscp_nakci(fsm *f, u_char *p, int len)
 	len -= cilen; \
 	INCPTR(2, p); \
 	GETLONG(l, p); \
-	cidomains_vers = htonl(l); \
+	cidomains_vers = l; \
 	no.neg = 1; \
 	code \
     }
@@ -586,7 +586,7 @@ acscp_rejci(fsm *f, u_char *p, int len)
 	len -= cilen; \
 	INCPTR(2, p); \
 	GETLONG(l, p); \
-	cilong = htonl(l); \
+	cilong = l; \
 	/* Check rejected value. */ \
 	if (cilong != vers) \
 	    goto bad; \
@@ -602,7 +602,7 @@ acscp_rejci(fsm *f, u_char *p, int len)
 	len -= cilen; \
 	INCPTR(2, p); \
 	GETLONG(l, p); \
-	cilong = htonl(l); \
+	cilong = l; \
 	/* Check rejected value. */ \
 	if (cilong != vers) \
 	    goto bad; \
