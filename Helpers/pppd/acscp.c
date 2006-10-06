@@ -693,10 +693,9 @@ acscp_reqci(fsm *f, u_char *inp, int *len, int reject_if_disagree)
 		break;
 	    }
 	    GETLONG(tl, p);
-	    if (htonl(tl) > ao->routes_version) {
+	    if (tl > ao->routes_version) {
                 DECPTR(sizeof(u_int32_t), p);
-		tl = ntohl(ao->routes_version);
-		PUTLONG(tl, p);
+		PUTLONG(ao->routes_version, p);
 		orc = CONFNAK;
                 break;
             }
@@ -714,10 +713,9 @@ acscp_reqci(fsm *f, u_char *inp, int *len, int reject_if_disagree)
 		break;
 	    }
 	    GETLONG(tl, p);
-	    if (htonl(tl) > ao->domains_version) {
+	    if (tl > ao->domains_version) {
                 DECPTR(sizeof(u_int32_t), p);
-		tl = ntohl(ao->domains_version);
-		PUTLONG(tl, p);
+		PUTLONG(ao->domains_version, p);
 		orc = CONFNAK;
                 break;
             }

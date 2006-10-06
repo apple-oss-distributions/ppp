@@ -1039,11 +1039,10 @@ static void acsp_plugin_send(acsp_plugin_context* context, ACSP_Input* acsp_in, 
         case CI_ROUTES:
             route_data = (acsp_route_data*)pkt->data;
             while (context->next_to_send && space >= len + sizeof(acsp_route_data)) {
-                /* XXX bytes order may be wrong */
                 route_data->address = ((acsp_route*)context->next_to_send)->address.s_addr;
                 route_data->mask = ((acsp_route*)context->next_to_send)->mask.s_addr;
                 route_data->flags = htons(((acsp_route*)context->next_to_send)->flags);
-                route_data->reserved = 0;
+                route_data->reserved = htons(0);
                 len += sizeof(acsp_route_data);
                 context->next_to_send = ((acsp_route*)(context->next_to_send))->next;
                 route_data++;
@@ -1052,9 +1051,8 @@ static void acsp_plugin_send(acsp_plugin_context* context, ACSP_Input* acsp_in, 
     	case CI_DOMAINS:
             domain_data = (acsp_domain_data*)pkt->data;
             while (context->next_to_send && space >= (len + (slen = strlen(((acsp_domain*)(context->next_to_send))->name)) + 6)) {
-                /* XXX bytes order may be wrong */
                 domain_data->server = ((acsp_domain*)(context->next_to_send))->server.s_addr;
-                domain_data->len = slen;
+                domain_data->len = htons(slen);
                 memcpy(domain_data->name, ((acsp_domain*)(context->next_to_send))->name, slen);
                 len += (slen + 6);
                 context->next_to_send = ((acsp_domain*)(context->next_to_send))->next;

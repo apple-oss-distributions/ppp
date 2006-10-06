@@ -117,6 +117,7 @@ int add_address_range(char* ip_addr_start, char* ip_addr_end)
 {
     struct in_addr	start_addr;
     struct in_addr	end_addr;
+    struct in_addr	cur_addr;
     char		addr_str[16];
     char		*ip_addr;
 
@@ -126,13 +127,17 @@ int add_address_range(char* ip_addr_start, char* ip_addr_end)
         return -1;
     if (inet_pton(AF_INET, ip_addr_end, &end_addr) < 1)
         return -1;
+	start_addr.s_addr = ntohl(start_addr.s_addr);
+	end_addr.s_addr = ntohl(end_addr.s_addr);
     if (start_addr.s_addr > end_addr.s_addr)
         return -1;
     if (start_addr.s_addr == end_addr.s_addr)
         return add_address(ip_addr_start);
         
     for (; start_addr.s_addr <= end_addr.s_addr; start_addr.s_addr++) {
-        if (ip_addr = (char*)inet_ntop(AF_INET, &start_addr, addr_str, 16)) {
+		cur_addr = start_addr;
+		cur_addr.s_addr = htonl(cur_addr.s_addr);
+        if (ip_addr = (char*)inet_ntop(AF_INET, &cur_addr, addr_str, 16)) {
             if (add_address(ip_addr))
                 return -1;
         } else
