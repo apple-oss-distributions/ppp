@@ -14,19 +14,6 @@
 				23055ECF05E1807F00EAB16F /* CopyFiles */,
 				23055ED305E1807F00EAB16F /* CopyFiles */,
 			);
-			buildSettings = {
-				FRAMEWORK_SEARCH_PATHS = "";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = ppp;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-			};
 			dependencies = (
 				230560D605E1808C00EAB16F /* PBXTargetDependency */,
 				230560D805E1808C00EAB16F /* PBXTargetDependency */,
@@ -45,21 +32,6 @@
 			buildPhases = (
 				23055F1C05E1807F00EAB16F /* CopyFiles */,
 			);
-			buildSettings = {
-				FRAMEWORK_SEARCH_PATHS = "";
-				HEADER_SEARCH_PATHS = "";
-				LIBRARY_SEARCH_PATHS = "";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = Drivers;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-			};
 			dependencies = (
 				230560E605E1808C00EAB16F /* PBXTargetDependency */,
 				230560E805E1808C00EAB16F /* PBXTargetDependency */,
@@ -74,21 +46,6 @@
 			buildConfigurationList = 725B05BC0A0032CF000FE99A /* Build configuration list for PBXAggregateTarget "SampleCode (Aggregate)" */;
 			buildPhases = (
 			);
-			buildSettings = {
-				FRAMEWORK_SEARCH_PATHS = "";
-				HEADER_SEARCH_PATHS = "";
-				LIBRARY_SEARCH_PATHS = "";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = SampleCode;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-			};
 			dependencies = (
 			);
 			name = "SampleCode (Aggregate)";
@@ -100,21 +57,6 @@
 			buildPhases = (
 				23055F5C05E1808000EAB16F /* CopyFiles */,
 			);
-			buildSettings = {
-				FRAMEWORK_SEARCH_PATHS = "";
-				HEADER_SEARCH_PATHS = "";
-				LIBRARY_SEARCH_PATHS = "";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = Helpers;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-			};
 			dependencies = (
 				230560F205E1808C00EAB16F /* PBXTargetDependency */,
 				230560F405E1808C00EAB16F /* PBXTargetDependency */,
@@ -129,18 +71,6 @@
 			buildConfigurationList = 725B05B80A0032CF000FE99A /* Build configuration list for PBXAggregateTarget "Authenticators (Aggregate)" */;
 			buildPhases = (
 			);
-			buildSettings = {
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = "Authenticators (Aggregate)";
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-			};
 			dependencies = (
 				2305610405E1808C00EAB16F /* PBXTargetDependency */,
 				2305610605E1808C00EAB16F /* PBXTargetDependency */,
@@ -466,36 +396,6 @@
 		23D96C680621CB8600FDE1D8 /* pppcontroller_types.h in CopyFiles */ = {isa = PBXBuildFile; fileRef = 23B70767061B74AE008BA483 /* pppcontroller_types.h */; };
 		23D96C700621CB9900FDE1D8 /* pppcontroller.defs in CopyFiles */ = {isa = PBXBuildFile; fileRef = 23B70768061B74AE008BA483 /* pppcontroller.defs */; };
 /* End PBXBuildFile section */
-
-/* Begin PBXBuildStyle section */
-		7129A554FFF9584B11CA2CDC /* Development */ = {
-			isa = PBXBuildStyle;
-			buildSettings = {
-				COPY_PHASE_STRIP = NO;
-				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_ENABLE_FIX_AND_CONTINUE = NO;
-				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
-				GCC_OPTIMIZATION_LEVEL = 0;
-				GCC_WARN_ABOUT_POINTER_SIGNEDNESS = NO;
-				MACOSX_DEPLOYMENT_TARGET = 10.4;
-				OPTIMIZATION_CFLAGS = "-O0";
-				PPP_DEVELOPMENT = 1;
-				ZERO_LINK = NO;
-			};
-			name = Development;
-		};
-		7129A555FFF9584B11CA2CDC /* Deployment */ = {
-			isa = PBXBuildStyle;
-			buildSettings = {
-				COPY_PHASE_STRIP = YES;
-				GCC_ENABLE_FIX_AND_CONTINUE = NO;
-				GCC_WARN_ABOUT_POINTER_SIGNEDNESS = NO;
-				MACOSX_DEPLOYMENT_TARGET = 10.4;
-				ZERO_LINK = NO;
-			};
-			name = Deployment;
-		};
-/* End PBXBuildStyle section */
 
 /* Begin PBXContainerItemProxy section */
 		2302271F062DA3C40033908D /* PBXContainerItemProxy */ = {
@@ -2327,28 +2227,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				FRAMEWORK_SEARCH_PATHS = "$(NEXT_ROOT)/System/Library/Frameworks/CoreServices.framework/Frameworks";
-				GCC_PREPROCESSOR_DEFINITIONS = "__FreeBSD__=5";
-				HEADER_SEARCH_PATHS = (
-					../include,
-					"$(SYSTEM_LIBRARY_DIR)/Frameworks/System.framework/PrivateHeaders/",
-				);
-				INFOPLIST_FILE = "Controller/PPPController-Info.plist";
-				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/SystemConfiguration";
-				LIBRARY_SEARCH_PATHS = "";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "-bundle";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = PPPController;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = bundle;
-			};
 			dependencies = (
 				230560E405E1808C00EAB16F /* PBXTargetDependency */,
 			);
@@ -2372,29 +2250,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				FRAMEWORK_SEARCH_PATHS = "";
-				HEADER_SEARCH_PATHS = "";
-				INFOPLIST_FILE = "Family/PPP-kext-Info.plist";
-				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
-				KERNEL_EXTENSION = YES;
-				KERNEL_MODULE = YES;
-				LIBRARY_SEARCH_PATHS = "";
-				MODULE_NAME = com.apple.nke.ppp;
-				MODULE_START = ppp_module_start;
-				MODULE_STOP = ppp_module_stop;
-				MODULE_VERSION = 1.4;
-				OTHER_CFLAGS = "-Wno-format";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = PPP;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = kext;
-			};
 			dependencies = (
 			);
 			name = "PPP (Kernel Extension)";
@@ -2416,25 +2271,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				INFOPLIST_FILE = "Drivers/PPPoE/PPPoE-plugin/PPPoE-ppp-Info.plist";
-				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = (
-					"-bundle",
-					"-bundle_loader",
-					"$(SYMROOT)/pppd",
-				);
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = PPPoE;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = ppp;
-			};
 			dependencies = (
 				230560EE05E1808C00EAB16F /* PBXTargetDependency */,
 				230560F005E1808C00EAB16F /* PBXTargetDependency */,
@@ -2459,28 +2295,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				FRAMEWORK_SEARCH_PATHS = "";
-				HEADER_SEARCH_PATHS = "";
-				INFOPLIST_FILE = "Drivers/PPPoE/PPPoE-extension/PPPoE-kext-Info.plist";
-				KERNEL_EXTENSION = YES;
-				KERNEL_MODULE = YES;
-				LIBRARY_SEARCH_PATHS = "";
-				MODULE_NAME = com.apple.nke.pppoe;
-				MODULE_START = pppoe_domain_module_start;
-				MODULE_STOP = pppoe_domain_module_stop;
-				MODULE_VERSION = 1.4;
-				OTHER_CFLAGS = "-Wno-format";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = PPPoE;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = kext;
-			};
 			dependencies = (
 			);
 			name = "PPPoE (Kernel Extension)";
@@ -2500,24 +2314,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				INFOPLIST_FILE = "Drivers/PPPoE/PPPoE-vpn/PPPoE-vpn-Info.plist";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = (
-					"-bundle",
-					"-bundle_loader",
-					"$(SYMROOT)/vpnd",
-				);
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = PPPoE;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = vpn;
-			};
 			dependencies = (
 			);
 			name = "PPPoE (VPN Plugin)";
@@ -2538,24 +2334,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				GCC_DYNAMIC_NO_PIC = YES;
-				HEADER_SEARCH_PATHS = "$(SYSTEM_LIBRARY_DIR)/Frameworks/System.framework/PrivateHeaders/";
-				INFOPLIST_FILE = "Helpers/MiniTerm/MiniTerm-Info.plist";
-				INSTALL_MODE_FLAG = "u+w,go-w,a+rX";
-				INSTALL_PATH = /usr/libexec;
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = MiniTerm;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = app;
-			};
 			dependencies = (
 			);
 			name = "MiniTerm (Application)";
@@ -2576,24 +2354,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				INFOPLIST_FILE = "Dialogs/PPPDialogs-Info.plist";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = (
-					"-bundle",
-					"-bundle_loader",
-					"$(SYMROOT)/pppd",
-				);
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = PPPDialogs;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = ppp;
-			};
 			dependencies = (
 			);
 			name = "PPPDialogs (Plugin)";
@@ -2615,26 +2375,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				HEADER_SEARCH_PATHS = "$(SYSTEM_LIBRARY_DIR)/Frameworks/System.framework/Versions/B/PrivateHeaders/";
-				INFOPLIST_FILE = "Drivers/PPTP/PPTP-plugin/PPTP-ppp-Info.plist";
-				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = (
-					"-bundle",
-					"-bundle_loader",
-					"$(SYMROOT)/pppd",
-				);
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = PPTP;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = ppp;
-			};
 			dependencies = (
 				230560FC05E1808C00EAB16F /* PBXTargetDependency */,
 				230560FE05E1808C00EAB16F /* PBXTargetDependency */,
@@ -2658,27 +2398,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				FRAMEWORK_SEARCH_PATHS = "";
-				HEADER_SEARCH_PATHS = "";
-				INFOPLIST_FILE = "Drivers/PPTP/PPTP-extension/PPTP-kext-Info.plist";
-				KERNEL_MODULE = YES;
-				LIBRARY_SEARCH_PATHS = "";
-				MODULE_NAME = com.apple.nke.pptp;
-				MODULE_START = pptp_domain_module_start;
-				MODULE_STOP = pptp_domain_module_stop;
-				MODULE_VERSION = 1.4;
-				OTHER_CFLAGS = "";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = PPTP;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = kext;
-			};
 			dependencies = (
 			);
 			name = "PPTP (Kernel Extension)";
@@ -2698,25 +2417,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				HEADER_SEARCH_PATHS = "$(SYSTEM_LIBRARY_DIR)/Frameworks/System.framework/PrivateHeaders/";
-				INFOPLIST_FILE = "Drivers/PPTP/PPTP-vpn/PPTP-vpn-Info.plist";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = (
-					"-bundle",
-					"-bundle_loader",
-					"$(SYMROOT)/vpnd",
-				);
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = PPTP;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = vpn;
-			};
 			dependencies = (
 			);
 			name = "PPTP (VPN Plugin)";
@@ -2737,24 +2437,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				INFOPLIST_FILE = "Drivers/PPPSerial/PPPSerial-plugin/PPPSerial-ppp-Info.plist";
-				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
-				OTHER_LDFLAGS = (
-					"-bundle",
-					"-bundle_loader",
-					"$(SYMROOT)/pppd",
-				);
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = PPPSerial;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = ppp;
-			};
 			dependencies = (
 			);
 			name = "PPPSerial (Plugin)";
@@ -2776,46 +2458,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				GCC_DYNAMIC_NO_PIC = YES;
-				GCC_PREPROCESSOR_DEFINITIONS = (
-					lint,
-					DEBUGUPAP,
-					DEBUGCHAP,
-					DEBUGLCP,
-					DEBUGIPCP,
-					HAVE_PATHS_H,
-					CHAPMS,
-					PLUGIN,
-					EAP,
-					MPPE,
-					USE_CRYPT,
-					INET6,
-					ACSCP,
-					"DEVELOPMENT=$(PPP_DEVELOPMENT)",
-				);
-				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
-				GCC_USE_GCC3_PFE_SUPPORT = NO;
-				HEADER_SEARCH_PATHS = (
-					../../Family,
-					"$(DSTROOT)/usr/include",
-				);
-				INSTALL_GROUP = wheel;
-				INSTALL_MODE_FLAG = 4511;
-				INSTALL_OWNER = root;
-				INSTALL_PATH = /usr/sbin;
-				OTHER_CFLAGS = "";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = pppd;
-				REZ_EXECUTABLE = YES;
-				SECTORDER_FLAGS = "";
-				STRIPFLAGS = "-x";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-			};
 			dependencies = (
 			);
 			name = "pppd (Tool)";
@@ -2837,27 +2479,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				GCC_DYNAMIC_NO_PIC = YES;
-				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
-				HEADER_SEARCH_PATHS = "$(SYSTEM_LIBRARY_DIR)/Frameworks/System.framework/PrivateHeaders";
-				INSTALL_GROUP = wheel;
-				INSTALL_MODE_FLAG = 4511;
-				INSTALL_OWNER = root;
-				INSTALL_PATH = /usr/sbin;
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "-lipsec";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = vpnd;
-				REZ_EXECUTABLE = YES;
-				SECTORDER_FLAGS = "";
-				STRIPFLAGS = "-x";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-			};
 			dependencies = (
 			);
 			name = "vpnd (Tool)";
@@ -2879,21 +2500,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				GCC_DYNAMIC_NO_PIC = YES;
-				HEADER_SEARCH_PATHS = ../../Family;
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = pppstats;
-				REZ_EXECUTABLE = YES;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-			};
 			dependencies = (
 			);
 			name = "pppstats (Tool)";
@@ -2910,20 +2516,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				INSTALLHDRS_COPY_PHASE = YES;
-				INSTALL_PATH = /usr/include/net;
-				OTHER_CFLAGS = "";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = "PPP Headers";
-				REZ_EXECUTABLE = YES;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-			};
 			dependencies = (
 			);
 			name = InstallHeaders;
@@ -2945,27 +2537,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				HEADER_SEARCH_PATHS = "$(SYSTEM_LIBRARY_DIR)/Frameworks/System.framework/Versions/B/PrivateHeaders/";
-				INFOPLIST_FILE = "Drivers/L2TP/L2TP-plugin/L2TP-ppp-Info.plist";
-				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = (
-					"-bundle",
-					"-bundle_loader",
-					"$(SYMROOT)/pppd",
-					"-lipsec",
-				);
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = L2TP;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = ppp;
-			};
 			dependencies = (
 				2305610005E1808C00EAB16F /* PBXTargetDependency */,
 				2305610205E1808C00EAB16F /* PBXTargetDependency */,
@@ -2989,28 +2560,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				FRAMEWORK_SEARCH_PATHS = "";
-				HEADER_SEARCH_PATHS = "";
-				INFOPLIST_FILE = "Drivers/L2TP/L2TP-extension/L2TP-kext-Info.plist";
-				KERNEL_MODULE = YES;
-				LIBRARY_SEARCH_PATHS = "";
-				MODULE_NAME = com.apple.nke.lttp;
-				MODULE_START = l2tp_domain_module_start;
-				MODULE_STOP = l2tp_domain_module_stop;
-				MODULE_VERSION = 1.4.1;
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = L2TP;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = kext;
-			};
 			dependencies = (
 			);
 			name = "L2TP (Kernel Extension)";
@@ -3031,26 +2580,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				HEADER_SEARCH_PATHS = "$(SYSTEM_LIBRARY_DIR)/Frameworks/System.framework/PrivateHeaders/";
-				INFOPLIST_FILE = "Drivers/L2TP/L2TP-vpn/L2TP-vpn-Info.plist";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = (
-					"-bundle",
-					"-bundle_loader",
-					"$(SYMROOT)/vpnd",
-					"-lipsec",
-				);
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = L2TP;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = vpn;
-			};
 			dependencies = (
 			);
 			name = "L2TP (VPN Plugin)";
@@ -3071,25 +2600,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				INFOPLIST_FILE = "Authenticators/Radius/Radius-Info.plist";
-				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = (
-					"-bundle",
-					"-bundle_loader",
-					"$(SYMROOT)/pppd",
-				);
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = Radius;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = ppp;
-			};
 			dependencies = (
 			);
 			name = "Radius (Plugin)";
@@ -3110,25 +2620,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				INFOPLIST_FILE = "Authenticators/DSAuthentication/DSAuth-Info.plist";
-				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = (
-					"-bundle",
-					"-bundle_loader",
-					"$(SYMROOT)/pppd",
-				);
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = DSAuth;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = ppp;
-			};
 			dependencies = (
 			);
 			name = "DSAuth (Plugin)";
@@ -3149,25 +2640,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				INFOPLIST_FILE = "Authenticators/DSAccessControl/DSACL-Info.plist";
-				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = (
-					"-bundle",
-					"-bundle_loader",
-					"$(SYMROOT)/pppd",
-				);
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = DSACL;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = ppp;
-			};
 			dependencies = (
 			);
 			name = "DSACL (Plugin)";
@@ -3189,21 +2661,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				GCC_DYNAMIC_NO_PIC = YES;
-				GCC_PREPROCESSOR_DEFINITIONS = lint;
-				INSTALL_PATH = /usr/sbin;
-				OTHER_LDFLAGS = "";
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = chat;
-				REZ_EXECUTABLE = YES;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-			};
 			dependencies = (
 			);
 			name = "chat (Tool)";
@@ -3222,55 +2679,11 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				FRAMEWORK_SEARCH_PATHS = "\"$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks\"";
-				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_PREFIX_HEADER = "";
-				HEADER_SEARCH_PATHS = "$(SYSTEM_LIBRARY_DIR)/Frameworks/System.framework/PrivateHeaders/";
-				INFOPLIST_FILE = "Authenticators/EAP-KRB/EAP-KRB-Info.plist";
-				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = (
-					"-bundle",
-					"-bundle_loader",
-					"$(SYMROOT)/pppd",
-				);
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = "EAP-KRB";
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = ppp;
-			};
 			dependencies = (
 			);
 			name = "EAP-KRB (Plugin)";
 			productName = "EAP-KRB";
 			productReference = 2342E4A106DA523D0019B94A /* EAP-KRB.ppp */;
-			productSettingsXML = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-<plist version=\"1.0\">
-<dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>English</string>
-	<key>CFBundleExecutable</key>
-	<string>EAP-KRB</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.yourcompany.EAP_KRB</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleSignature</key>
-	<string>????</string>
-	<key>CFBundleVersion</key>
-	<string>1.0</string>
-</dict>
-</plist>
-";
 			productType = "com.apple.product-type.bundle";
 		};
 		23C6083206DA64F8001ECACE /* to_delete */ = {
@@ -3282,22 +2695,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
-				GCC_MODEL_TUNING = G5;
-				INSTALL_PATH = "$(HOME)/bin";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "";
-				OTHER_REZFLAGS = "";
-				PREBINDING = NO;
-				PRODUCT_NAME = krblaunch;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-			};
 			dependencies = (
 			);
 			name = to_delete;
@@ -3317,27 +2714,6 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				FRAMEWORK_SEARCH_PATHS = "\"$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks\"";
-				HEADER_SEARCH_PATHS = "$(SYSTEM_LIBRARY_DIR)/Frameworks/System.framework/PrivateHeaders/";
-				INFOPLIST_FILE = "Authenticators/EAP-TLS/EAP-TLS-Info.plist";
-				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/Extensions";
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = (
-					"-bundle",
-					"-bundle_loader",
-					"$(SYMROOT)/pppd",
-				);
-				OTHER_REZFLAGS = "";
-				PRODUCT_NAME = "EAP-TLS";
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = ppp;
-			};
 			dependencies = (
 			);
 			name = "EAP-TLS (Plugin)";
@@ -3352,12 +2728,6 @@
 		7129A431FFF956F311CA2CDC /* Project object */ = {
 			isa = PBXProject;
 			buildConfigurationList = 725B05CC0A0032CF000FE99A /* Build configuration list for PBXProject "ppp" */;
-			buildSettings = {
-			};
-			buildStyles = (
-				7129A554FFF9584B11CA2CDC /* Development */,
-				7129A555FFF9584B11CA2CDC /* Deployment */,
-			);
 			hasScannedForEncodings = 1;
 			mainGroup = 7129A432FFF956F311CA2CDC /* ppp */;
 			productRefGroup = 7129A4CEFFF956F311CA2CDC /* Products */;
@@ -5071,7 +4441,7 @@
 				MODULE_NAME = com.apple.nke.ppp;
 				MODULE_START = ppp_module_start;
 				MODULE_STOP = ppp_module_stop;
-				MODULE_VERSION = 1.4;
+				MODULE_VERSION = 1.4.2;
 				OPTIMIZATION_CFLAGS = "-O0";
 				OTHER_CFLAGS = "-Wno-format";
 				OTHER_REZFLAGS = "";
@@ -5105,7 +4475,7 @@
 				MODULE_NAME = com.apple.nke.ppp;
 				MODULE_START = ppp_module_start;
 				MODULE_STOP = ppp_module_stop;
-				MODULE_VERSION = 1.4;
+				MODULE_VERSION = 1.4.2;
 				OTHER_CFLAGS = "-Wno-format";
 				OTHER_REZFLAGS = "";
 				PRODUCT_NAME = PPP;
@@ -5133,7 +4503,7 @@
 				MODULE_NAME = com.apple.nke.ppp;
 				MODULE_START = ppp_module_start;
 				MODULE_STOP = ppp_module_stop;
-				MODULE_VERSION = 1.4;
+				MODULE_VERSION = 1.4.2;
 				OTHER_CFLAGS = "-Wno-format";
 				OTHER_REZFLAGS = "";
 				PRODUCT_NAME = PPP;
@@ -5328,7 +4698,7 @@
 				MODULE_NAME = com.apple.nke.pppoe;
 				MODULE_START = pppoe_domain_module_start;
 				MODULE_STOP = pppoe_domain_module_stop;
-				MODULE_VERSION = 1.4;
+				MODULE_VERSION = 1.4.2;
 				OPTIMIZATION_CFLAGS = "-O0";
 				OTHER_CFLAGS = "-Wno-format";
 				OTHER_REZFLAGS = "";
@@ -5361,7 +4731,7 @@
 				MODULE_NAME = com.apple.nke.pppoe;
 				MODULE_START = pppoe_domain_module_start;
 				MODULE_STOP = pppoe_domain_module_stop;
-				MODULE_VERSION = 1.4;
+				MODULE_VERSION = 1.4.2;
 				OTHER_CFLAGS = "-Wno-format";
 				OTHER_REZFLAGS = "";
 				PRODUCT_NAME = PPPoE;
@@ -5388,7 +4758,7 @@
 				MODULE_NAME = com.apple.nke.pppoe;
 				MODULE_START = pppoe_domain_module_start;
 				MODULE_STOP = pppoe_domain_module_stop;
-				MODULE_VERSION = 1.4;
+				MODULE_VERSION = 1.4.2;
 				OTHER_CFLAGS = "-Wno-format";
 				OTHER_REZFLAGS = "";
 				PRODUCT_NAME = PPPoE;
@@ -5504,7 +4874,7 @@
 				MODULE_NAME = com.apple.nke.pptp;
 				MODULE_START = pptp_domain_module_start;
 				MODULE_STOP = pptp_domain_module_stop;
-				MODULE_VERSION = 1.4;
+				MODULE_VERSION = 1.4.2;
 				OPTIMIZATION_CFLAGS = "-O0";
 				OTHER_CFLAGS = "";
 				OTHER_REZFLAGS = "";
@@ -5536,7 +4906,7 @@
 				MODULE_NAME = com.apple.nke.pptp;
 				MODULE_START = pptp_domain_module_start;
 				MODULE_STOP = pptp_domain_module_stop;
-				MODULE_VERSION = 1.4;
+				MODULE_VERSION = 1.4.2;
 				OTHER_CFLAGS = "";
 				OTHER_REZFLAGS = "";
 				PRODUCT_NAME = PPTP;
@@ -5562,7 +4932,7 @@
 				MODULE_NAME = com.apple.nke.pptp;
 				MODULE_START = pptp_domain_module_start;
 				MODULE_STOP = pptp_domain_module_stop;
-				MODULE_VERSION = 1.4;
+				MODULE_VERSION = 1.4.2;
 				OTHER_CFLAGS = "";
 				OTHER_REZFLAGS = "";
 				PRODUCT_NAME = PPTP;
@@ -5765,7 +5135,7 @@
 				MODULE_NAME = com.apple.nke.lttp;
 				MODULE_START = l2tp_domain_module_start;
 				MODULE_STOP = l2tp_domain_module_stop;
-				MODULE_VERSION = 1.4.1;
+				MODULE_VERSION = 1.4.2;
 				OPTIMIZATION_CFLAGS = "-O0";
 				OTHER_CFLAGS = "";
 				OTHER_LDFLAGS = "";
@@ -5798,7 +5168,7 @@
 				MODULE_NAME = com.apple.nke.lttp;
 				MODULE_START = l2tp_domain_module_start;
 				MODULE_STOP = l2tp_domain_module_stop;
-				MODULE_VERSION = 1.4.1;
+				MODULE_VERSION = 1.4.2;
 				OTHER_CFLAGS = "";
 				OTHER_LDFLAGS = "";
 				OTHER_REZFLAGS = "";
@@ -5825,7 +5195,7 @@
 				MODULE_NAME = com.apple.nke.lttp;
 				MODULE_START = l2tp_domain_module_start;
 				MODULE_STOP = l2tp_domain_module_stop;
-				MODULE_VERSION = 1.4.1;
+				MODULE_VERSION = 1.4.2;
 				OTHER_CFLAGS = "";
 				OTHER_LDFLAGS = "";
 				OTHER_REZFLAGS = "";
