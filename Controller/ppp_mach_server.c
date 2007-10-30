@@ -38,6 +38,7 @@ includes
 #include <CoreFoundation/CFMachPort.h>
 #include <SystemConfiguration/SCPrivate.h>      // for SCLog()
 #include <SystemConfiguration/SCValidation.h>
+#include "bsm/libbsm.h"
 
 #include "ppp_client.h"
 #include "ppp_manager.h"
@@ -92,7 +93,6 @@ _pppcontroller_attach(mach_port_t server,
 	kern_return_t		status;
 	
 	*session = 0;
-	
 	/* un-serialize the serviceID */
 	if (!_SCUnserializeString(&serviceID, NULL, (void *)nameRef, nameLen)) {
 		*result = kSCStatusFailed;
@@ -496,20 +496,22 @@ failed:
 __private_extern__
 kern_return_t
 _pppcontroller_bootstrap(mach_port_t server,
-	    task_t task, 
 		mach_port_t *bootstrap,
-		      int * result)
+		int * result,
+		audit_token_t *audit_token)
 {
-    kern_return_t       status;
     int                 pid;
 	struct ppp			*ppp;
 
-    status = pid_for_task(task, &pid);
-    mach_port_deallocate(mach_task_self(), task);
-    if (status != KERN_SUCCESS) {
-        *result = kSCStatusFailed;
-        goto failed;
-    }
+	audit_token_to_au32(*audit_token,
+			    NULL,			// auidp
+			    NULL,			// euid
+			    NULL,			// egid
+			    NULL,			// ruid
+			    NULL,			// rgid
+			    &pid,			// pid
+			    NULL,			// asid
+			    NULL);			// tid
 
 	if ((ppp = ppp_findbypid(pid)) == 0) {
 		*result = kSCStatusInvalidArgument;
@@ -530,24 +532,26 @@ failed:
 __private_extern__
 kern_return_t
 _pppcontroller_copyprivoptions(mach_port_t server,
-	    task_t task, 
 		int options_type,
 		xmlDataOut_t * options, 
 		mach_msg_type_number_t * options_len,
-		      int * result)
+		int * result,
+		audit_token_t *audit_token)
 {
-    kern_return_t       status;
     int                 pid;
 	struct ppp			*ppp;
 	void				*reply = 0;
 	u_int16_t			replylen = 0;
 	
-    status = pid_for_task(task, &pid);
-    mach_port_deallocate(mach_task_self(), task);
-    if (status != KERN_SUCCESS) {
-        *result = kSCStatusFailed;
-        goto failed;
-    }
+	audit_token_to_au32(*audit_token,
+			    NULL,			// auidp
+			    NULL,			// euid
+			    NULL,			// egid
+			    NULL,			// ruid
+			    NULL,			// rgid
+			    &pid,			// pid
+			    NULL,			// asid
+			    NULL);			// tid
 
 	if ((ppp = ppp_findbypid(pid)) == 0) {
 		*result = kSCStatusInvalidArgument;
@@ -584,6 +588,35 @@ _pppcontroller_copyprivoptions(mach_port_t server,
 failed:
 	*options = 0;
 	*options_len = 0;
+    return (KERN_SUCCESS);
+}
+
+/* -----------------------------------------------------------------------------
+----------------------------------------------------------------------------- */
+__private_extern__
+kern_return_t
+_pppcontroller_iscontrolled(mach_port_t server,
+				int * result,
+				audit_token_t *audit_token)
+{
+    pid_t                pid = 0;
+	struct ppp			*ppp;
+
+	audit_token_to_au32(*audit_token,
+			    NULL,			// auidp
+			    NULL,			// euid
+			    NULL,			// egid
+			    NULL,			// ruid
+			    NULL,			// rgid
+			    &pid,			// pid
+			    NULL,			// asid
+			    NULL);			// tid
+
+	if ((ppp = ppp_findbypid(pid)) == 0)
+		*result = kSCStatusInvalidArgument;
+	else 
+		*result = kSCStatusOK;
+
     return (KERN_SUCCESS);
 }
 

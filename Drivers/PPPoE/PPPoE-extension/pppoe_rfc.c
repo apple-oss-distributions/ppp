@@ -819,7 +819,7 @@ u_int16_t get_tag(mbuf_t m, u_int16_t tag, struct pppoe_tag *val)
     while (totallen > 0) {
     
         len = ntohs(*(u_int16_t *)(data + 2));
-        if (len > totallen)
+        if ((len + 4) > totallen)
             break;	// bogus packet
             
         //log(LOGVAL, "tag 0x%x 0x%x 0x%x 0x%x \n", data[0], data[1], data[2], data[3]);
@@ -1310,9 +1310,7 @@ void pppoe_rfc_lower_detaching(ifnet_t ifp)
             if (rfc->flags & PPPOE_FLAG_DEBUG)
                 log(LOGVAL, "PPPoE lower layer detaching (0x%x): ethernet unit = %d\n", rfc, rfc->unit);
         
-			lck_mtx_unlock(ppp_domain_mutex);
             pppoe_dlil_detach(rfc->ifp);
-			lck_mtx_lock(ppp_domain_mutex);
             rfc->ifp = 0;
             rfc->unit = 0xFFFF;
         

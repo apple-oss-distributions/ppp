@@ -192,7 +192,7 @@ return the pid of racoon process
 int 
 racoon_pid()
 {
-    int   	pid = 0, err, name[3];
+    int   	pid = 0, err, name[4];
     FILE 	*f;
     size_t	namelen, infolen;
     struct kinfo_proc	info;
@@ -290,9 +290,9 @@ racoon_start(CFBundleRef bundle, char *filename)
         
         // need to exec a tool, with complete parameters list
         if (name[0])
-            execl("/usr/sbin/racoon", "racoon", "-f", name, (char *)0);
+            execle("/usr/sbin/racoon", "racoon", "-f", name, (char *)0, (char *)0);
         else
-            execl("/usr/sbin/racoon", "racoon", (char *)0);
+            execle("/usr/sbin/racoon", "racoon", (char *)0, (char *)0);
             
         // child exits
         exit(0);
@@ -342,7 +342,6 @@ racoon_restart(int launch)
     return 0;
 }
 
-#if 0
 /* -----------------------------------------------------------------------------
 Terminate racoon process.
 this is not a good idea...
@@ -356,7 +355,6 @@ racoon_stop()
         kill(pid, SIGTERM);
     return 0;
 }
-#endif
 
 /* -----------------------------------------------------------------------------
 Configure one phase 1 proposal of IPSec
@@ -554,8 +552,14 @@ configure_remote(int level, FILE *file, CFDictionaryRef ipsec_dict, char **errst
 					FAIL("incorrect phase 1 exchange mode");
 			}
 		}
-		if (nb == 0)
-			strcat(text, "main");
+		if (nb == 0) {
+			char str[256];
+			/* default mode is main except if local identifier is defined */
+			if (GetStrFromDict(ipsec_dict, kRASPropIPSecLocalIdentifier, str, sizeof(str), ""))
+				strcat(text, "aggressive");
+			else 
+				strcat(text, "main");
+		}
 		strcat(text, ";\n");
 		WRITE(text);
 	}
@@ -608,9 +612,25 @@ configure_remote(int level, FILE *file, CFDictionaryRef ipsec_dict, char **errst
 	*/
 	{
 		char	str[256];
+		char	str1[256];
+
+		if (GetStrFromDict(ipsec_dict, CFSTR("LocalIdentifierType"), str1, sizeof(str1), "")) {
+			if (!strcmp(str1, "FQDN"))
+				strcpy(str1, "fqdn");
+			else if (!strcmp(str1, "UserFQDN"))
+				strcpy(str1, "user_fqdn");
+			else if (!strcmp(str1, "KeyID"))
+				strcpy(str1, "keyid_use");
+			else if (!strcmp(str1, "Address"))
+				strcpy(str1, "address");
+			else if (!strcmp(str1, "ASN1DN"))
+				strcpy(str1, "asn1dn");
+			else 
+				strcpy(str1, "");
+		}
 		
 		if (GetStrFromDict(ipsec_dict, kRASPropIPSecLocalIdentifier, str, sizeof(str), "")) {
-			sprintf(text, "my_identifier fqdn \"%s\";\n", str);
+			sprintf(text, "my_identifier %s \"%s\";\n", str1[0] ? str1 : "fqdn", str);
 			WRITE(text);
 		}
 		else {
@@ -766,6 +786,17 @@ configure_remote(int level, FILE *file, CFDictionaryRef ipsec_dict, char **errst
 		WRITE(text);
 	}
 	
+	/*
+		Enable/Disable nat traversal multiple user support
+	*/
+	{
+		int	natt_multi_user;
+		
+		if (GetIntFromDict(ipsec_dict, kRASPropIPSecNattMultipleUsersEnabled, &natt_multi_user, 0)) {
+			sprintf(text, "nat_traversal_multi_user %s;\n", natt_multi_user ? "on" : "off");
+			WRITE(text);
+		}
+	}
     /* 
 		other keys 
 	*/
@@ -1316,7 +1347,7 @@ IPSecInstallPolicies(CFDictionaryRef ipsec_dict, CFIndex index, char ** errstr)
 {
     int			s = -1, err, seq = 0, i, nb;
     char		policystr_in[64], policystr_out[64], src_address[32], dst_address[32], str[32];
-    caddr_t		policy_in, policy_out;
+    caddr_t		policy_in = 0, policy_out = 0;
     int			policylen_in, policylen_out, local_prefix, remote_prefix;
 	int			protocol = 0xFF;
 	CFArrayRef  policies;
@@ -1521,7 +1552,7 @@ IPSecRemovePolicies(CFDictionaryRef ipsec_dict, CFIndex index, char ** errstr)
 {
     int			s = -1, err, seq = 0, nb, i;
     char		policystr_in[64], policystr_out[64], str[32];
-    caddr_t		policy_in, policy_out;
+    caddr_t		policy_in = 0, policy_out = 0;
     int			policylen_in, policylen_out, local_prefix, remote_prefix;
 	int			protocol = 0xFF;
 	CFArrayRef  policies;
@@ -2028,13 +2059,14 @@ Return code:
 the configuration dictionary
 ----------------------------------------------------------------------------- */
 CFMutableDictionaryRef 
-IPSecCreateL2TPDefaultConfiguration(struct sockaddr *src, struct sockaddr *dst, char *dst_hostName, CFStringRef authenticationMethod, int isClient) 
+IPSecCreateL2TPDefaultConfiguration(struct sockaddr *src, struct sockaddr *dst, char *dst_hostName, CFStringRef authenticationMethod, 
+		int isClient, int natt_multiple_users, CFStringRef identifierVerification) 
 {
 	CFStringRef				src_string, dst_string, hostname_string = NULL;
 	CFMutableDictionaryRef	ipsec_dict, proposal_dict, policy0, policy1 = NULL;
 	CFMutableArrayRef		policy_array, proposal_array, encryption_array, hash_array;
-	CFNumberRef				src_port_num, dst_port_num, dst_port1_num, proto_num;
-	int						zero = 0, udpproto = IPPROTO_UDP, val;
+	CFNumberRef				src_port_num, dst_port_num, dst_port1_num, proto_num, natt_multiuser_mode;
+	int						zero = 0, one = 1, udpproto = IPPROTO_UDP, val;
 	struct sockaddr_in		*our_address = (struct sockaddr_in *)src;
 	struct sockaddr_in		*peer_address = (struct sockaddr_in *)dst;
 		
@@ -2051,18 +2083,30 @@ IPSecCreateL2TPDefaultConfiguration(struct sockaddr *src, struct sockaddr *dst, 
 	dst_port_num = CFNumberCreate(0, kCFNumberIntType, &val);
 	dst_port1_num = CFNumberCreate(0, kCFNumberIntType, &zero);
 	proto_num = CFNumberCreate(0, kCFNumberIntType, &udpproto);
+	if (!isClient)
+		natt_multiuser_mode = CFNumberCreate(0, kCFNumberIntType, natt_multiple_users ? &one : &zero);
+	
 
 	CFDictionarySetValue(ipsec_dict, kRASPropIPSecLocalAddress, src_string);
 	CFDictionarySetValue(ipsec_dict, kRASPropIPSecRemoteAddress, dst_string);
 	CFDictionarySetValue(ipsec_dict, kRASPropIPSecProposalsBehavior, isClient ? kRASValIPSecProposalsBehaviorObey : kRASValIPSecProposalsBehaviorClaim);
 	if (isClient && CFEqual(authenticationMethod, kRASValIPSecProposalAuthenticationMethodCertificate)) {
-		if (dst_hostName) {
-			CFDictionarySetValue(ipsec_dict, kRASPropIPSecRemoteIdentifier, hostname_string);
-			CFDictionarySetValue(ipsec_dict, kRASPropIPSecIdentifierVerification, kRASValIPSecIdentifierVerificationUseRemoteIdentifier);
-		} else
-			CFDictionarySetValue(ipsec_dict, kRASPropIPSecIdentifierVerification, kRASValIPSecIdentifierVerificationGenerateFromRemoteAddress);
+		if (identifierVerification) {
+			CFDictionarySetValue(ipsec_dict, kRASPropIPSecIdentifierVerification, identifierVerification);
+		}
+		else {
+			if (dst_hostName) {
+				CFDictionarySetValue(ipsec_dict, kRASPropIPSecRemoteIdentifier, hostname_string);
+				CFDictionarySetValue(ipsec_dict, kRASPropIPSecIdentifierVerification, kRASValIPSecIdentifierVerificationUseRemoteIdentifier);
+			} else
+				CFDictionarySetValue(ipsec_dict, kRASPropIPSecIdentifierVerification, kRASValIPSecIdentifierVerificationGenerateFromRemoteAddress);
+		}
 	} else /*server or no certificate */
 		CFDictionarySetValue(ipsec_dict, kRASPropIPSecIdentifierVerification, kRASValIPSecIdentifierVerificationNone);
+		
+	/* if server - set natt multiple user mode */
+	if (!isClient)
+		CFDictionarySetValue(ipsec_dict, kRASPropIPSecNattMultipleUsersEnabled, natt_multiuser_mode);
 	
 	/* create the phase 1 proposals */
 	proposal_dict = CFDictionaryCreateMutable(0, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
@@ -2098,7 +2142,7 @@ IPSecCreateL2TPDefaultConfiguration(struct sockaddr *src, struct sockaddr *dst, 
 		CFDictionarySetValue(policy1, kRASPropIPSecPolicyRemotePort, dst_port1_num);
 		CFDictionarySetValue(policy1, kRASPropIPSecPolicyDirection, kRASValIPSecPolicyDirectionIn);
 	}
-	
+		
 	policy_array = CFArrayCreateMutable(0, 0, &kCFTypeArrayCallBacks);
 	CFArraySetValueAtIndex(policy_array, 0, policy0);
 	if (isClient)
@@ -2116,8 +2160,34 @@ IPSecCreateL2TPDefaultConfiguration(struct sockaddr *src, struct sockaddr *dst, 
 	CFRelease(src_port_num);
 	CFRelease(dst_port_num);
 	CFRelease(proto_num);
+	if (!isClient)
+		CFRelease(natt_multiuser_mode);
 	if (hostname_string)
 		CFRelease(hostname_string);
 
 	return ipsec_dict;
+}
+
+/* -----------------------------------------------------------------------------
+IPSecSelfRepair. 
+This is an attempt to have IPSec try to repair itself when things
+don't work anymore.
+Tipically, kill and restart racoon...
+
+Parameters:
+
+Return code:
+0 if successful, -1 otherwise.
+----------------------------------------------------------------------------- */
+int 
+IPSecSelfRepair() 
+{
+	int err;
+	
+	racoon_stop();
+	err = racoon_start(0,0);
+	if (err)
+		return -1;
+	
+	return 0;
 }
