@@ -801,7 +801,7 @@
 		23055F5305E1808000EAB16F /* PPPoE-vpn-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = "PPPoE-vpn-Info.plist"; path = "Drivers/PPPoE/PPPoE-vpn/PPPoE-vpn-Info.plist"; sourceTree = "<group>"; };
 		23055F5405E1808000EAB16F /* PPPoE.vpn */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PPPoE.vpn; sourceTree = BUILT_PRODUCTS_DIR; };
 		23055F7C05E1808100EAB16F /* MiniTerm-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = "MiniTerm-Info.plist"; path = "Helpers/MiniTerm/MiniTerm-Info.plist"; sourceTree = SOURCE_ROOT; };
-		23055F7D05E1808100EAB16F /* MiniTerm.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MiniTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		23055F7D05E1808100EAB16F /* MiniTerm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MiniTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		23055F8B05E1808100EAB16F /* PPPDialogs-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = "PPPDialogs-Info.plist"; path = "Dialogs/PPPDialogs-Info.plist"; sourceTree = SOURCE_ROOT; };
 		23055F8C05E1808100EAB16F /* PPPDialogs.ppp */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PPPDialogs.ppp; sourceTree = BUILT_PRODUCTS_DIR; };
 		23055FA105E1808100EAB16F /* PPTP-ppp-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = "PPTP-ppp-Info.plist"; path = "Drivers/PPTP/PPTP-plugin/PPTP-ppp-Info.plist"; sourceTree = "<group>"; };
@@ -3827,6 +3827,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 10.4;
 				OPTIMIZATION_CFLAGS = "-O0";
 				OTHER_CFLAGS = "";
+				OTHER_LDFLAGS = "-lbsm";
 				OTHER_REZFLAGS = "";
 				PPP_DEVELOPMENT = 1;
 				PRODUCT_NAME = pppd;
@@ -3877,6 +3878,7 @@
 				INSTALL_PATH = /usr/sbin;
 				MACOSX_DEPLOYMENT_TARGET = 10.4;
 				OTHER_CFLAGS = "";
+				OTHER_LDFLAGS = "-lbsm";
 				OTHER_REZFLAGS = "";
 				PRODUCT_NAME = pppd;
 				REZ_EXECUTABLE = YES;
@@ -3922,6 +3924,7 @@
 				INSTALL_OWNER = root;
 				INSTALL_PATH = /usr/sbin;
 				OTHER_CFLAGS = "";
+				OTHER_LDFLAGS = "-lbsm";
 				OTHER_REZFLAGS = "";
 				PRODUCT_NAME = pppd;
 				REZ_EXECUTABLE = YES;
@@ -4349,7 +4352,10 @@
 				MACOSX_DEPLOYMENT_TARGET = 10.4;
 				OPTIMIZATION_CFLAGS = "-O0";
 				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "-bundle";
+				OTHER_LDFLAGS = (
+					"-bundle",
+					"-lbsm",
+				);
 				OTHER_REZFLAGS = "";
 				PPP_DEVELOPMENT = 1;
 				PRODUCT_NAME = PPPController;
@@ -4381,7 +4387,10 @@
 				LIBRARY_SEARCH_PATHS = "";
 				MACOSX_DEPLOYMENT_TARGET = 10.4;
 				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "-bundle";
+				OTHER_LDFLAGS = (
+					"-bundle",
+					"-lbsm",
+				);
 				OTHER_REZFLAGS = "";
 				PRODUCT_NAME = PPPController;
 				SECTORDER_FLAGS = "";
@@ -4408,7 +4417,10 @@
 				INSTALL_PATH = "$(SYSTEM_LIBRARY_DIR)/SystemConfiguration";
 				LIBRARY_SEARCH_PATHS = "";
 				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = "-bundle";
+				OTHER_LDFLAGS = (
+					"-bundle",
+					"-lbsm",
+				);
 				OTHER_REZFLAGS = "";
 				PRODUCT_NAME = PPPController;
 				SECTORDER_FLAGS = "";
