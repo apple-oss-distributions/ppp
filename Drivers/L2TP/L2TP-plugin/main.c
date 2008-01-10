@@ -435,7 +435,7 @@ void l2tp_wait_input()
 							/* If we are behind a NAT, let's flust security association to force renegotiation and 
 							  reacquisition of the correct port */
 							if (!opt_noipsec) {
-								if (IN_PRIVATE(our_address.sin_addr.s_addr) && !IN_PRIVATE(peer_address.sin_addr.s_addr)) {
+								if (IN_PRIVATE(ntohl(our_address.sin_addr.s_addr)) && !IN_PRIVATE(htonl(peer_address.sin_addr.s_addr))) {
 									IPSecRemoveSecurityAssociations((struct sockaddr *)&our_address, (struct sockaddr *)&peer_address);
 								}
 							}
