@@ -40,17 +40,20 @@ includes
 #include <SystemConfiguration/SCValidation.h>
 #include "bsm/libbsm.h"
 
-#include "ppp_client.h"
-#include "ppp_manager.h"
-#include "ppp_utils.h"
+#include "scnc_client.h"
+#include "scnc_main.h"
+#include "scnc_utils.h"
 #include "pppcontroller.h"
 #include "pppcontroller_types.h"
-#include "ppp_mach_server.h"
+#include "scnc_mach_server.h"
 
 /* -----------------------------------------------------------------------------
 definitions
 ----------------------------------------------------------------------------- */
 
+#ifndef kSCStatusConnectionNoService
+#define kSCStatusConnectionNoService 5001
+#endif
 
 /* -----------------------------------------------------------------------------
 forward declarations
@@ -90,9 +93,8 @@ _pppcontroller_attach(mach_port_t server,
 	CFRunLoopSourceRef  rls = NULL;
 	struct client		*client = NULL;
 	mach_port_t			oldport;
-	kern_return_t		status;
 	
-	*session = 0;
+	*session = MACH_PORT_NULL;
 	/* un-serialize the serviceID */
 	if (!_SCUnserializeString(&serviceID, NULL, (void *)nameRef, nameLen)) {
 		*result = kSCStatusFailed;
@@ -104,48 +106,69 @@ _pppcontroller_attach(mach_port_t server,
 		goto failed;
 	}
 
-	if ((ppp_findbyserviceID(serviceID)) == 0) {
-		*result = kSCStatusInvalidArgument;
-		goto failed;
-	}
+	//if ((findbyserviceID(serviceID)) == 0) {
+	//	*result = kSCStatusInvalidArgument;
+	//	goto failed;
+	//}
 
-    port = CFMachPortCreate(NULL, server_handle_request, NULL, NULL);
-    rls = CFMachPortCreateRunLoopSource(NULL, port, 0);
-    CFRunLoopAddSource(CFRunLoopGetCurrent(), rls, kCFRunLoopDefaultMode);			     
+	/* allocate session port */
+	(void) mach_port_allocate(mach_task_self(),
+							  MACH_PORT_RIGHT_RECEIVE,
+							  session);
+
+    /*
+     * Note: we create the CFMachPort *before* we insert a send
+     *       right present to ensure that CF does not establish
+     *       it's dead name notification.
+     */
+	port = CFMachPortCreateWithPort(NULL, *session, server_handle_request, NULL, NULL);
+
+    /* insert send right that will be moved to the client */
+	(void) mach_port_insert_right(mach_task_self(),
+								  *session,
+								  *session,
+								  MACH_MSG_TYPE_MAKE_SEND);
+
+	/* Request a notification when/if the client dies */
+	(void) mach_port_request_notification(mach_task_self(),
+										  *session,
+										  MACH_NOTIFY_NO_SENDERS,
+										  1,
+										  *session,
+										  MACH_MSG_TYPE_MAKE_SEND_ONCE,
+										  &oldport);
+
+	/* add to runloop */
+	rls = CFMachPortCreateRunLoopSource(NULL, port, 0);
+	CFRunLoopAddSource(CFRunLoopGetCurrent(), rls, kCFRunLoopDefaultMode);
 
 	client = client_new_mach(port, rls, serviceID, S_uid, S_gid, bootstrap, notify);
 	if (client == 0) {
 		*result = kSCStatusFailed;
 		goto failed;
 	}
-	
-    *session = CFMachPortGetPort(port);
-
-	/* Request a notification when/if the client dies */
-	status = mach_port_request_notification(mach_task_self(),
-						*session, MACH_NOTIFY_NO_SENDERS, 1,
-						*session, MACH_MSG_TYPE_MAKE_SEND_ONCE, &oldport);
-	if (status != KERN_SUCCESS) {
-		*result = kSCStatusFailed;
-		goto failed;
-	}
 
 	*result = kSCStatusOK;
 	
-	my_CFRelease(serviceID);
-	my_CFRelease(port);
-	my_CFRelease(rls);
+	my_CFRelease(&serviceID);
+	my_CFRelease(&port);
+	my_CFRelease(&rls);
     return KERN_SUCCESS;
 	
  failed:
-	my_CFRelease(serviceID);
+	my_CFRelease(&serviceID);
 	if (port) {
 		CFMachPortInvalidate(port);
-		my_CFRelease(port);
+		my_CFRelease(&port);
 	}
 	if (rls) {
 		CFRunLoopRemoveSource(CFRunLoopGetCurrent(), rls, kCFRunLoopDefaultMode);
-		my_CFRelease(rls);
+		my_CFRelease(&rls);
+	}
+	if (*session != MACH_PORT_NULL) {
+		mach_port_mod_refs(mach_task_self(), *session, MACH_PORT_RIGHT_SEND   , -1);
+		mach_port_mod_refs(mach_task_self(), *session, MACH_PORT_RIGHT_RECEIVE, -1);
+		*session = MACH_PORT_NULL;
 	}
 	if (client) {
 		client_dispose(client);
@@ -163,11 +186,11 @@ _pppcontroller_attach(mach_port_t server,
 __private_extern__
 kern_return_t
 _pppcontroller_getstatus(mach_port_t session,
-	    int * phase,
+	    int * status,
 		int * result)
 {
 	struct client		*client;
-	struct ppp			*ppp = 0;
+	struct service		*serv = 0;
 	
     client = client_findbymachport(session);
     if (!client ) {
@@ -175,12 +198,12 @@ _pppcontroller_getstatus(mach_port_t session,
 		goto failed;
     }
 
-	if ((ppp = ppp_findbyserviceID(client->serviceID)) == 0) {
-		*result = kSCStatusInvalidArgument;
+	if ((serv = findbyserviceID(client->serviceID)) == 0) {
+		*result = kSCStatusConnectionNoService;
 		goto failed;
 	}
         
-    *phase = ppp->phase;
+	*status = scnc_getstatus(serv);
 	
 	*result = kSCStatusOK;
     return (KERN_SUCCESS);
@@ -199,7 +222,7 @@ _pppcontroller_copyextendedstatus(mach_port_t session,
 		int * result)
 {
 	struct client		*client;
-	struct ppp			*ppp = 0;
+	struct service		*serv = 0;
 	void				*reply = 0;
 	u_int16_t			replylen = 0;
 	
@@ -209,12 +232,12 @@ _pppcontroller_copyextendedstatus(mach_port_t session,
 		goto failed;
     }
 
-	if ((ppp = ppp_findbyserviceID(client->serviceID)) == 0) {
-		*result = kSCStatusInvalidArgument;
+	if ((serv = findbyserviceID(client->serviceID)) == 0) {
+		*result = kSCStatusConnectionNoService;
 		goto failed;
 	}
         
-	if (ppp_copyextendedstatus(ppp, &reply, &replylen)) {
+	if (scnc_copyextendedstatus(serv, &reply, &replylen)) {
 		*result = kSCStatusFailed;
 		goto failed;
 	}
@@ -242,7 +265,7 @@ _pppcontroller_copystatistics(mach_port_t session,
 		int * result)
 {
 	struct client		*client;
-	struct ppp			*ppp = 0;
+	struct service		*serv = 0;
 	void				*reply = 0;
 	u_int16_t			replylen = 0;
 	
@@ -252,12 +275,12 @@ _pppcontroller_copystatistics(mach_port_t session,
 		goto failed;
     }
 
-	if ((ppp = ppp_findbyserviceID(client->serviceID)) == 0) {
-		*result = kSCStatusInvalidArgument;
+	if ((serv = findbyserviceID(client->serviceID)) == 0) {
+		*result = kSCStatusConnectionNoService;
 		goto failed;
 	}
         
-	if (ppp_copystatistics(ppp, &reply, &replylen)) {
+	if (scnc_copystatistics(serv, &reply, &replylen)) {
 		*result = kSCStatusFailed;
 		goto failed;
 	}
@@ -284,7 +307,7 @@ _pppcontroller_copyuseroptions(mach_port_t session,
 		int * result)
 {
 	struct client		*client;
-	struct ppp			*ppp = 0;
+	struct service		*serv = 0;
 	void				*reply = 0;
 	u_int16_t			replylen = 0;
 	
@@ -294,12 +317,12 @@ _pppcontroller_copyuseroptions(mach_port_t session,
 		goto failed;
     }
 
-	if ((ppp = ppp_findbyserviceID(client->serviceID)) == 0) {
-		*result = kSCStatusInvalidArgument;
+	if ((serv = findbyserviceID(client->serviceID)) == 0) {
+		*result = kSCStatusConnectionNoService;
 		goto failed;
 	}
         
-	if (ppp_getconnectdata(ppp, &reply, &replylen, 0)) {
+	if (scnc_getconnectdata(serv, &reply, &replylen, 0)) {
 		*result = kSCStatusFailed;
 		goto failed;
 	}
@@ -327,7 +350,7 @@ _pppcontroller_start(mach_port_t session,
 				int * result)
 {
 	struct client		*client;
-	struct ppp			*ppp = 0;
+	struct service		*serv = 0;
     CFDictionaryRef		optRef = 0;
 	int					err;
 	
@@ -337,8 +360,8 @@ _pppcontroller_start(mach_port_t session,
 		goto failed;
     }
 
-	if ((ppp = ppp_findbyserviceID(client->serviceID)) == 0) {
-		*result = kSCStatusInvalidArgument;
+	if ((serv = findbyserviceID(client->serviceID)) == 0) {
+		*result = kSCStatusConnectionNoService;
 		goto failed;
 	}
         
@@ -355,18 +378,18 @@ _pppcontroller_start(mach_port_t session,
 		}
 	}
 	
-    err = ppp_connect(ppp, optRef, 0, client, linger ? 0 : 1, client->uid, client->gid, client->bootstrap_port);
+    err = scnc_start(serv, optRef, client, linger ? 0 : 1, client->uid, client->gid, client->bootstrap_port);
 	if (err) {
 		*result = kSCStatusFailed;
 		goto failed;
 	}
 	
-	my_CFRelease(optRef);
+	my_CFRelease(&optRef);
 	*result = kSCStatusOK;
     return (KERN_SUCCESS);
 
 failed:
-	my_CFRelease(optRef);
+	my_CFRelease(&optRef);
     return (KERN_SUCCESS);
 }
 
@@ -379,7 +402,7 @@ _pppcontroller_stop(mach_port_t session,
 				int		*result)
 {
 	struct client		*client;
-	struct ppp			*ppp = 0;
+	struct service		*serv = 0;
 	
     client = client_findbymachport(session);
     if (!client ) {
@@ -387,12 +410,12 @@ _pppcontroller_stop(mach_port_t session,
 		goto failed;
     }
 
-	if ((ppp = ppp_findbyserviceID(client->serviceID)) == 0) {
-		*result = kSCStatusInvalidArgument;
+	if ((serv = findbyserviceID(client->serviceID)) == 0) {
+		*result = kSCStatusConnectionNoService;
 		goto failed;
 	}
         
-    ppp_disconnect(ppp, force ? 0 : client, SIGHUP);
+    scnc_stop(serv, force ? 0 : client, SIGHUP);
 	
 	*result = kSCStatusOK;
     return (KERN_SUCCESS);
@@ -409,7 +432,7 @@ _pppcontroller_suspend(mach_port_t session,
 				int		*result)
 {
 	struct client		*client;
-	struct ppp			*ppp = 0;
+	struct service		*serv = 0;
 	
     client = client_findbymachport(session);
     if (!client ) {
@@ -417,12 +440,12 @@ _pppcontroller_suspend(mach_port_t session,
 		goto failed;
     }
 
-	if ((ppp = ppp_findbyserviceID(client->serviceID)) == 0) {
-		*result = kSCStatusInvalidArgument;
+	if ((serv = findbyserviceID(client->serviceID)) == 0) {
+		*result = kSCStatusConnectionNoService;
 		goto failed;
 	}
         
-    ppp_suspend(ppp);
+    scnc_suspend(serv);
 	
 	*result = kSCStatusOK;
     return (KERN_SUCCESS);
@@ -439,7 +462,7 @@ _pppcontroller_resume(mach_port_t session,
 				int		*result)
 {
 	struct client		*client;
-	struct ppp			*ppp = 0;
+	struct service		*serv = 0;
 	
     client = client_findbymachport(session);
     if (!client ) {
@@ -447,12 +470,12 @@ _pppcontroller_resume(mach_port_t session,
 		goto failed;
     }
 
-	if ((ppp = ppp_findbyserviceID(client->serviceID)) == 0) {
-		*result = kSCStatusInvalidArgument;
+	if ((serv = findbyserviceID(client->serviceID)) == 0) {
+		*result = kSCStatusConnectionNoService;
 		goto failed;
 	}
         
-    ppp_resume(ppp);
+    scnc_resume(serv);
 	
 	*result = kSCStatusOK;
     return (KERN_SUCCESS);
@@ -501,7 +524,7 @@ _pppcontroller_bootstrap(mach_port_t server,
 		audit_token_t *audit_token)
 {
     int                 pid;
-	struct ppp			*ppp;
+	struct service		*serv;
 
 	audit_token_to_au32(*audit_token,
 			    NULL,			// auidp
@@ -513,12 +536,12 @@ _pppcontroller_bootstrap(mach_port_t server,
 			    NULL,			// asid
 			    NULL);			// tid
 
-	if ((ppp = ppp_findbypid(pid)) == 0) {
+	if ((serv = findbypid(pid)) == 0) {
 		*result = kSCStatusInvalidArgument;
 		goto failed;
 	}
 
-	*bootstrap = ppp->bootstrap;
+	*bootstrap = serv->bootstrap;
 	*result = kSCStatusOK;
 
     return (KERN_SUCCESS);
@@ -539,7 +562,7 @@ _pppcontroller_copyprivoptions(mach_port_t server,
 		audit_token_t *audit_token)
 {
     int                 pid;
-	struct ppp			*ppp;
+	struct service		*serv;
 	void				*reply = 0;
 	u_int16_t			replylen = 0;
 	
@@ -553,7 +576,7 @@ _pppcontroller_copyprivoptions(mach_port_t server,
 			    NULL,			// asid
 			    NULL);			// tid
 
-	if ((ppp = ppp_findbypid(pid)) == 0) {
+	if ((serv = findbypid(pid)) == 0) {
 		*result = kSCStatusInvalidArgument;
 		goto failed;
 	}
@@ -562,7 +585,7 @@ _pppcontroller_copyprivoptions(mach_port_t server,
 	
 		/* system options */
 		case 0:
-			if (ppp_getconnectsystemdata(ppp, &reply, &replylen)) {
+			if (scnc_getconnectsystemdata(serv, &reply, &replylen)) {
 				*result = kSCStatusFailed;
 				goto failed;
 			}
@@ -571,7 +594,7 @@ _pppcontroller_copyprivoptions(mach_port_t server,
 		/* user options */
 		case 1:
 
-			if (ppp_getconnectdata(ppp, &reply, &replylen, 1)) {
+			if (scnc_getconnectdata(serv, &reply, &replylen, 1)) {
 				*result = kSCStatusFailed;
 				goto failed;
 			}
@@ -600,7 +623,7 @@ _pppcontroller_iscontrolled(mach_port_t server,
 				audit_token_t *audit_token)
 {
     pid_t                pid = 0;
-	struct ppp			*ppp;
+	struct service		*serv;
 
 	audit_token_to_au32(*audit_token,
 			    NULL,			// auidp
@@ -612,7 +635,7 @@ _pppcontroller_iscontrolled(mach_port_t server,
 			    NULL,			// asid
 			    NULL);			// tid
 
-	if ((ppp = ppp_findbypid(pid)) == 0)
+	if ((serv = findbypid(pid)) == 0)
 		*result = kSCStatusInvalidArgument;
 	else 
 		*result = kSCStatusOK;
@@ -681,15 +704,24 @@ process_notification(mach_msg_header_t * request)
 		return FALSE;	/* if this is not a notification message */
 	}
     switch (notify->not_header.msgh_id) {
-		case MACH_NOTIFY_NO_SENDERS:
-		case MACH_NOTIFY_DEAD_NAME:
+		case MACH_NOTIFY_NO_SENDERS: {
+			mach_port_t	session	= notify->not_header.msgh_local_port;
 
-			client = client_findbymachport(notify->not_header.msgh_local_port);
+			client = client_findbymachport(session);
 			if (client) {
 				client_dispose(client);
 			}
 
+			/*
+			 * Our send right has already been removed. Remove our
+			 * receive right.
+			 */
+			mach_port_mod_refs(mach_task_self(),
+							   session,
+							   MACH_PORT_RIGHT_RECEIVE,
+							   -1);
 			break;
+		}
 		default :
 			break;
     }
@@ -750,22 +782,31 @@ server_handle_request(CFMachPortRef port, void *msg, CFIndex size, void *info)
 }
 
 /* -----------------------------------------------------------------------------
+ ----------------------------------------------------------------------------- */
+static CFStringRef
+serverMPCopyDescription(const void *info)
+{
+	return CFStringCreateWithFormat(NULL, NULL, CFSTR("PPPController"));
+}
+
+/* -----------------------------------------------------------------------------
 ----------------------------------------------------------------------------- */
-int
+#ifdef TARGET_EMBEDDED_OS
+/* Radar 6386278 New launchd api is npot on embedded yet */
 ppp_mach_start_server()
 {
     boolean_t		active;
     kern_return_t 	status;
     CFRunLoopSourceRef	rls;
-
+	
 	active = FALSE;
 	status = bootstrap_status(bootstrap_port, PPPCONTROLLER_SERVER, &active);
-
+	
 	switch (status) {
 		case BOOTSTRAP_SUCCESS:
 			if (active) {
 				fprintf(stderr, "\"%s\" is currently active.\n", 
-					 PPPCONTROLLER_SERVER);
+						PPPCONTROLLER_SERVER);
 				return -1;
 			}
 			break;
@@ -773,23 +814,57 @@ ppp_mach_start_server()
 			break;
 		default:
 			fprintf(stderr,
-			 "bootstrap_status(): %s\n", mach_error_string(status));
+					"bootstrap_status(): %s\n", mach_error_string(status));
 			return -1;
     }
-
+	
     gServer_cfport = CFMachPortCreate(NULL, server_handle_request, NULL, NULL);
     rls = CFMachPortCreateRunLoopSource(NULL, gServer_cfport, 0);
     CFRunLoopAddSource(CFRunLoopGetCurrent(), rls, kCFRunLoopDefaultMode);
     CFRelease(rls);
-
+	
     status = bootstrap_register(bootstrap_port, PPPCONTROLLER_SERVER, 
-				CFMachPortGetPort(gServer_cfport));
+								CFMachPortGetPort(gServer_cfport));
     if (status != BOOTSTRAP_SUCCESS) {
 		mach_error("bootstrap_register", status);
 		return -1;
     }
-
+	
     return 0;
 }
-
-
+#else
+int
+ppp_mach_start_server()
+{
+    kern_return_t 	status;
+    CFRunLoopSourceRef	rls;
+	mach_port_t      our_port = MACH_PORT_NULL;
+	CFMachPortContext      context  = { 0, (void *)1, NULL, NULL, serverMPCopyDescription };
+	
+	status = bootstrap_check_in(bootstrap_port, PPPCONTROLLER_SERVER, &our_port);
+	if (status != BOOTSTRAP_SUCCESS) {
+		SCLog(TRUE, LOG_ERR, CFSTR("PPPController: bootstrap_check_in \"%s\" error = %s"),
+			  PPPCONTROLLER_SERVER, bootstrap_strerror(status));
+		return -1;
+	}
+	
+	gServer_cfport = CFMachPortCreateWithPort(0, our_port, server_handle_request, &context, 0);
+	if (!gServer_cfport) {
+		SCLog(TRUE, LOG_ERR, CFSTR("PPPController: cannot create mach port"));
+		return -1;
+	}
+	
+	rls = CFMachPortCreateRunLoopSource(0, gServer_cfport, 0);
+	if (!rls) {
+		SCLog(TRUE, LOG_ERR, CFSTR("PPPController: cannot create rls"));
+		CFRelease(gServer_cfport);
+		gServer_cfport = NULL;
+		return -1;
+	}
+	
+	CFRunLoopAddSource(CFRunLoopGetCurrent(), rls, kCFRunLoopDefaultMode);
+    CFRelease(rls);
+	return 0;
+	
+}
+#endif
