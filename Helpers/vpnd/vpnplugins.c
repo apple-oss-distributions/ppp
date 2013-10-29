@@ -196,7 +196,7 @@ int add_address_range(char* ip_addr_start, char* ip_addr_end)
     for (; start_addr.s_addr <= end_addr.s_addr; start_addr.s_addr++) {
 		cur_addr = start_addr;
 		cur_addr.s_addr = htonl(cur_addr.s_addr);
-        if (ip_addr = (char*)inet_ntop(AF_INET, &cur_addr, addr_str, 16)) {
+        if ((ip_addr = (char*)inet_ntop(AF_INET, &cur_addr, addr_str, 16))) {
             if (add_address(ip_addr))
                 return -1;
         } else
@@ -214,7 +214,7 @@ void begin_address_update(void)
     struct vpn_address *address_slot;
     
     // copy the free addresses to the save list
-	while (address_slot = (struct vpn_address*)TAILQ_FIRST(&free_address_list)) {
+	while ((address_slot = (struct vpn_address*)TAILQ_FIRST(&free_address_list))) {
         TAILQ_REMOVE(&free_address_list, address_slot, next);        
         TAILQ_INSERT_TAIL(&save_address_list, address_slot, next);
     }
@@ -229,14 +229,14 @@ void cancel_address_update(void)
     struct vpn_address *address_slot;
     
     // remove any new addresses
-	while (address_slot = (struct vpn_address*)TAILQ_FIRST(&free_address_list)) {
+	while ((address_slot = (struct vpn_address*)TAILQ_FIRST(&free_address_list))) {
         TAILQ_REMOVE(&free_address_list, address_slot, next);
         free(address_slot);
 		lb_max_connections--;
     }
     
     // copy the free addresses back from the save list
-	while (address_slot = (struct vpn_address*)TAILQ_FIRST(&save_address_list)) {
+	while ((address_slot = (struct vpn_address*)TAILQ_FIRST(&save_address_list))) {
         TAILQ_REMOVE(&save_address_list, address_slot, next);        
         TAILQ_INSERT_TAIL(&free_address_list, address_slot, next);
     }
@@ -251,7 +251,7 @@ void apply_address_update(void)
     struct vpn_address *child_address;
     
     // remove the old free addresses
-	while (address_slot = (struct vpn_address*)TAILQ_FIRST(&save_address_list)) {
+	while ((address_slot = (struct vpn_address*)TAILQ_FIRST(&save_address_list))) {
         TAILQ_REMOVE(&save_address_list, address_slot, next);
         free(address_slot);
 		lb_max_connections--;
@@ -338,11 +338,11 @@ int init_plugin(struct vpn_params *params)
 
     vpnlog(LOG_NOTICE, "Loading plugin %s\n", path);
 
-    if (url = CFURLCreateFromFileSystemRepresentation(NULL, (UInt8 *)path, strlen(path), TRUE)) {
-        if (bdl =  CFBundleCreate(NULL, url)) {
+    if ((url = CFURLCreateFromFileSystemRepresentation(NULL, (UInt8 *)path, strlen(path), TRUE))) {
+        if ((bdl =  CFBundleCreate(NULL, url))) {
 
             if (isPPP) {
-                if (pluginurl = CFBundleCopyBuiltInPlugInsURL(bdl)) {
+                if ((pluginurl = CFBundleCopyBuiltInPlugInsURL(bdl))) {
                     strlcat(path, "/", sizeof(path));
                     CFURLGetFileSystemRepresentation(pluginurl, 0, (UInt8 *)(path+strlen(path)), MAXPATHLEN-strlen(path));
                     CFRelease(pluginurl);
@@ -350,9 +350,9 @@ int init_plugin(struct vpn_params *params)
                     strlcat(path, name, sizeof(path));
                     strlcat(path, ".vpn", sizeof(path));
                     
-                    if (pluginurl = CFURLCreateFromFileSystemRepresentation(NULL, (UInt8 *)path, strlen(path), TRUE)) {
+                    if ((pluginurl = CFURLCreateFromFileSystemRepresentation(NULL, (UInt8 *)path, strlen(path), TRUE))) {
 
-                        if (pluginbdl =  CFBundleCreate(NULL, pluginurl)) {
+                        if ((pluginbdl =  CFBundleCreate(NULL, pluginurl))) {
 
                             // load the executable from the vpn plugin
                             if (CFBundleLoadExecutable(pluginbdl)
@@ -814,7 +814,7 @@ void accept_connections(struct vpn_params* params)
 								// our master address has been deleted. we are not master anymore
 								vpnlog(LOG_NOTICE, "Load Balancing: Cluster address deleted. Server is no longer master...\n");
 								lb_is_master = 0;
-								while (slave = TAILQ_FIRST(&lb_slaves_list)) {
+								while ((slave = TAILQ_FIRST(&lb_slaves_list))) {
 									TAILQ_REMOVE(&lb_slaves_list, slave, next);
 									free(slave);
 								}
@@ -1111,7 +1111,7 @@ static int terminate_children(void)
     struct vpn_address *child;
     
     /* loop on waitpid collecting children and freeing the addresses */
-    while (child = (struct vpn_address*)TAILQ_FIRST(&child_list)) {
+    while ((child = (struct vpn_address*)TAILQ_FIRST(&child_list))) {
         while (kill(child->pid, SIGTERM) < 0)
             if (errno != EINTR) {
                 vpnlog(LOG_ERR, "Error terminating child - err = %s\n", strerror(errno));

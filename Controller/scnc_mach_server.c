@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 2004, 2013 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  * 
@@ -38,6 +38,7 @@ includes
 #include <CoreFoundation/CFMachPort.h>
 #include <SystemConfiguration/SCPrivate.h>      // for SCLog()
 #include <SystemConfiguration/VPNPrivate.h>      
+#include <SystemConfiguration/VPNTunnel.h>   
 #include <SystemConfiguration/SCValidation.h>
 #include <Security/SecItem.h>
 #include <Security/SecCertificatePriv.h>
@@ -52,6 +53,10 @@ includes
 #include "pppcontroller_types.h"
 #include "pppcontrollerServer.h"
 #include "scnc_mach_server.h"
+#include "app_layer.h"
+#include "flow_divert_controller.h"
+#include "network_detection.h"
+#include "controller_options.h"
 
 /* -----------------------------------------------------------------------------
 definitions
@@ -75,6 +80,11 @@ globals
 ----------------------------------------------------------------------------- */
 
 static CFMachPortRef		gServer_cfport;
+static CFMachPortRef		gServer_cfport_priv;
+
+static mach_port_t          gServer_machport;
+static mach_port_t          gServer_machport_priv;
+
 static Boolean hasEntitlement(audit_token_t audit_token, CFStringRef entitlement, CFStringRef vpntype);
 
 
@@ -82,8 +92,20 @@ extern CFRunLoopRef			gControllerRunloop;
 extern CFRunLoopSourceRef	gPluginRunloop;
 extern CFRunLoopSourceRef	gTerminalrls;
 
+/*
+ * Name: com.apple.private.SCNetworkConnection-proxy-user
+ * Type of value: Boolean
+ * Function: gives the entitled process the ability to "masquerade" as another process when working
+ *           with the SCNetworkConnection SPI.
+ */
+#define kSCVPNConnectionEntitlementProxyUser CFSTR("com.apple.private.SCNetworkConnection-proxy-user")
 
-#define kSCVPNConnectionEntitlementName CFSTR("com.apple.private.SCNetworkConnection-proxy-user")
+/*
+ * Name: com.apple.private.SCNetworkConnection-flow-divert
+ * Type of value: Boolean
+ * Function: gives the entitled process the ability to enable flow divert on TCP sockets.
+ */
+#define kSCVPNConnectionEntitlementFlowDivert CFSTR("com.apple.private.SCNetworkConnection-flow-divert")
 
 /* -----------------------------------------------------------------------------
 ----------------------------------------------------------------------------- */
@@ -110,8 +132,20 @@ _pppcontroller_attach_proxy(mach_port_t server,
 	uid_t				audit_euid = -1;
 	gid_t				audit_egid = -1;
 	pid_t				audit_pid = -1;
-	
+    Boolean             has_machport_priv = FALSE;
+
+    if ( server == gServer_machport_priv){
+        SCLog(TRUE, LOG_DEBUG, CFSTR("_pppcontroller_attach_proxy server is priv server gServer_machport_priv %p"),
+              gServer_machport_priv );
+        has_machport_priv = TRUE;
+    }
+    else
+        SCLog(TRUE, LOG_DEBUG, CFSTR("_pppcontroller_attach_proxy server is norm %p"), gServer_machport);
+    
 	*session = MACH_PORT_NULL;
+    
+    SCLog(TRUE, LOG_DEBUG, CFSTR("_pppcontroller_attach_proxy client uid %u, gid %u, pid %u"), uid, gid, pid);
+    
 	/* un-serialize the serviceID */
 	if (!_SCUnserializeString(&serviceID, NULL, (void *)nameRef, nameLen)) {
 		*result = kSCStatusFailed;
@@ -134,15 +168,15 @@ _pppcontroller_attach_proxy(mach_port_t server,
 						NULL,			// asid
 						NULL);			// tid
 
-    if ((audit_euid != 0) &&
-        ((uid != audit_euid) || (gid != audit_egid) || (pid != audit_pid))) {
+    if (((uid != audit_euid) || (gid != audit_egid) || (pid != audit_pid))) {
         /*
-         * the caller is NOT "root" and is trying to masquerade
+         * the caller is trying to masquerade
          * as some other user/process.
          */
         
         /* does caller has the right entitlement */
-        if (!(hasEntitlement(audit_token, kSCVPNConnectionEntitlementName, NULL))){
+        if (!(hasEntitlement(audit_token, kSCVPNConnectionEntitlementProxyUser, NULL))){
+            SCLog(TRUE, LOG_ERR, CFSTR("_pppcontroller_attach_proxy client fails entitlement for client uid change"));            
            *result = kSCStatusAccessError;
             goto failed;
         }
@@ -185,15 +219,7 @@ _pppcontroller_attach_proxy(mach_port_t server,
 	rls = CFMachPortCreateRunLoopSource(NULL, port, 0);
 	CFRunLoopAddSource(CFRunLoopGetCurrent(), rls, kCFRunLoopDefaultMode);
 
-	if (au_session != MACH_PORT_NULL) {
-		if ((audit_session_join(au_session)) == AU_DEFAUDITSID) {
-			SCLog(TRUE, LOG_ERR, CFSTR("_pppcontroller_attach audit_session_join fails"));
-		}
-	}else {
-		SCLog(TRUE, LOG_ERR, CFSTR("_pppcontroller_attach au_session == NULL"));
-	}
-
-	client = client_new_mach(port, rls, serviceID, uid, gid, pid, bootstrap, notify, au_session);
+	client = client_new_mach(port, rls, serviceID, uid, gid, pid, bootstrap, notify, au_session, has_machport_priv);
 	if (client == 0) {
 		*result = kSCStatusFailed;
 		goto failed;
@@ -285,6 +311,8 @@ _pppcontroller_getstatus(mach_port_t session,
 	struct client		*client;
 	struct service		*serv = 0;
 	
+    *status = kSCNetworkConnectionInvalid;
+    
     client = client_findbymachport(session);
     if (!client ) {
 		*result = kSCStatusInvalidArgument;
@@ -444,14 +472,14 @@ _pppcontroller_start(mach_port_t session,
 {
 	struct client		*client;
 	struct service		*serv = 0;
-    CFDictionaryRef		optRef = 0;
+	CFDictionaryRef		optRef = 0;
 	int					err;
 	
-    client = client_findbymachport(session);
-    if (!client ) {
+	client = client_findbymachport(session);
+	if (!client ) {
 		*result = kSCStatusInvalidArgument;
 		goto failed;
-    }
+	}
 
 	if ((serv = findbyserviceID(client->serviceID)) == 0) {
 		*result = kSCStatusConnectionNoService;
@@ -470,8 +498,14 @@ _pppcontroller_start(mach_port_t session,
 			goto failed;
 		}
 	}
-	
-    err = scnc_start(serv, optRef, client, linger ? 0 : 1, client->uid, client->gid, client->pid, client->bootstrap_port);
+
+	if (optRef && !(client->has_machport_priv)){
+		SCLog(TRUE, LOG_ERR, CFSTR("SCNC Controller: _pppcontroller_start has no mach port priv"));
+		*result = kSCStatusFailed;
+		goto failed;
+	}
+        
+	err = scnc_start(serv, optRef, client, linger ? 0 : 1, client->uid, client->gid, client->pid, client->bootstrap_port, client->au_session);
 	if (err) {
 		*result = kSCStatusFailed;
 		goto failed;
@@ -479,11 +513,12 @@ _pppcontroller_start(mach_port_t session,
 	
 	my_CFRelease(&optRef);
 	*result = kSCStatusOK;
-    return (KERN_SUCCESS);
+    
+	return (KERN_SUCCESS);
 
 failed:
 	my_CFRelease(&optRef);
-    return (KERN_SUCCESS);
+	return (KERN_SUCCESS);
 }
 
 /* -----------------------------------------------------------------------------
@@ -498,11 +533,11 @@ _pppcontroller_stop(mach_port_t session,
 	struct service		*serv = 0;
 	int                  scnc_reason;
 	
-    client = client_findbymachport(session);
-    if (!client ) {
-		*result = kSCStatusInvalidArgument;
-		goto failed;
-    }
+	client = client_findbymachport(session);
+	if (!client ) {
+		    *result = kSCStatusInvalidArgument;
+		    goto failed;
+	}
 
 	if ((serv = findbyserviceID(client->serviceID)) == 0) {
 		*result = kSCStatusConnectionNoService;
@@ -510,12 +545,35 @@ _pppcontroller_stop(mach_port_t session,
 	}
 	arb_client = force ? 0 : client;
 	scnc_reason = arb_client? SCNC_STOP_USER_REQ : SCNC_STOP_USER_REQ_NO_CLIENT; 
-    scnc_stop(serv, client, SIGHUP, scnc_reason);
+
+	if (controller_options_is_onDemandAutoPauseUponDisconnect()) {
+		if (serv->ondemand_paused == ONDEMAND_PAUSE_STATE_TYPE_OFF) {
+			/* a disconnect on a VOD service will cause VOD to pause until network change */
+			ondemand_set_pause(serv, ONDEMAND_PAUSE_STATE_TYPE_UNTIL_NETCHANGE, FALSE);
+		}
+	}
+    
+	scnc_stop(serv, client, SIGHUP, scnc_reason);
 	
 	*result = kSCStatusOK;
-    return (KERN_SUCCESS);
+	return (KERN_SUCCESS);
 
 failed:
+	return (KERN_SUCCESS);
+}
+
+
+/* -----------------------------------------------------------------------------
+----------------------------------------------------------------------------- */
+__private_extern__
+kern_return_t
+_pppcontroller_ondemand_refresh_state(mach_port_t session,
+				      int *result)
+{
+    *result = kSCStatusOK;
+    
+    check_network_refresh();
+    
     return (KERN_SUCCESS);
 }
 
@@ -615,10 +673,11 @@ __private_extern__
 kern_return_t
 _pppcontroller_bootstrap(mach_port_t server,
 		mach_port_t *bootstrap,
+		mach_port_t *au_session,
 		int * result,
 		audit_token_t *audit_token)
 {
-    int                 pid;
+	int                 pid;
 	struct service		*serv;
 
 	audit_token_to_au32(*audit_token,
@@ -637,12 +696,19 @@ _pppcontroller_bootstrap(mach_port_t server,
 	}
 
 	*bootstrap = serv->bootstrap;
+	*au_session = serv->au_session;
+
+#if !TARGET_OS_IPHONE
+#endif
+
 	*result = kSCStatusOK;
 
-    return (KERN_SUCCESS);
+	return (KERN_SUCCESS);
 	
 failed:
-    return (KERN_SUCCESS);
+	*bootstrap = MACH_PORT_NULL;
+	*au_session = MACH_PORT_NULL;
+	return (KERN_SUCCESS);
 }
 
 /* -----------------------------------------------------------------------------
@@ -872,7 +938,7 @@ server_handle_request(CFMachPortRef port, void *msg, CFIndex size, void *info)
     mach_msg_return_t 	r;
     mach_msg_header_t *	request = (mach_msg_header_t *)msg;
     mach_msg_header_t *	reply;
-    char		reply_s[128] __attribute__ ((aligned (4)));		// Wcast-align fix - force alignment
+    static char		reply_s[PPP_MACH_MAX_INLINE_DATA * 4] __attribute__ ((aligned (4)));		// Wcast-align fix - force alignment
 
     if (process_notification(request) == FALSE) {
 		if (_pppcontroller_subsystem.maxsize > sizeof(reply_s)) {
@@ -916,7 +982,6 @@ server_handle_request(CFMachPortRef port, void *msg, CFIndex size, void *info)
     return;
 }
 
-#if !TARGET_OS_EMBEDDED
 /* -----------------------------------------------------------------------------
  ----------------------------------------------------------------------------- */
 static CFStringRef
@@ -924,55 +989,57 @@ serverMPCopyDescription(const void *info)
 {
 	return CFStringCreateWithFormat(NULL, NULL, CFSTR("PPPController"));
 }
-#endif
+
+/* -----------------------------------------------------------------------------
+ ----------------------------------------------------------------------------- */
+static CFStringRef
+serverMPCopyDescriptionPriv(const void *info)
+{
+	return CFStringCreateWithFormat(NULL, NULL, CFSTR("PPPController-Priv"));
+}
+
+/* -----------------------------------------------------------------------------
+ ----------------------------------------------------------------------------- */
+int
+ppp_mach_start_server_priv()
+{
+    kern_return_t 	status;
+    CFRunLoopSourceRef	rls;
+	mach_port_t         our_port = MACH_PORT_NULL;
+	CFMachPortContext   context  = { 0, (void *)2, NULL, NULL, serverMPCopyDescriptionPriv };
+	
+	status = bootstrap_check_in(bootstrap_port, PPPCONTROLLER_SERVER_PRIV, &our_port);
+	if (status != BOOTSTRAP_SUCCESS) {
+		SCLog(TRUE, LOG_ERR, CFSTR("PPPController: bootstrap_check_in \"%s\" error = %s"),
+			  PPPCONTROLLER_SERVER, bootstrap_strerror(status));
+		return -1;
+	}
+	
+	gServer_cfport_priv = _SC_CFMachPortCreateWithPort("PPPController", our_port, server_handle_request, &context);
+	if (!gServer_cfport_priv) {
+		SCLog(TRUE, LOG_ERR, CFSTR("PPPController: cannot create priv mach port"));
+		return -1;
+	}
+    gServer_machport_priv = our_port;
+	rls = CFMachPortCreateRunLoopSource(0, gServer_cfport_priv, 0);
+	if (!rls) {
+		SCLog(TRUE, LOG_ERR, CFSTR("PPPController: cannot create rls"));
+		CFRelease(gServer_cfport_priv);
+		gServer_cfport_priv = NULL;
+        gServer_machport_priv = NULL;
+		return -1;
+	}
+    
+	gControllerRunloop = CFRunLoopGetCurrent();
+	CFRunLoopAddSource(gControllerRunloop, rls, kCFRunLoopDefaultMode);
+	CFRunLoopAddSource(gControllerRunloop, gTerminalrls, kCFRunLoopDefaultMode);
+    CFRelease(rls);
+	return 0;
+	
+}
 
 /* -----------------------------------------------------------------------------
 ----------------------------------------------------------------------------- */
-#if TARGET_OS_EMBEDDED
-/* Radar 6386278 New launchd api is npot on embedded yet */
-int
-ppp_mach_start_server()
-{
-    boolean_t		active;
-    kern_return_t 	status;
-    CFRunLoopSourceRef	rls;
-	
-	active = FALSE;
-	status = bootstrap_status(bootstrap_port, PPPCONTROLLER_SERVER, &active);
-	
-	switch (status) {
-		case BOOTSTRAP_SUCCESS:
-			if (active) {
-				fprintf(stderr, "\"%s\" is currently active.\n", 
-						PPPCONTROLLER_SERVER);
-				return -1;
-			}
-			break;
-		case BOOTSTRAP_UNKNOWN_SERVICE:
-			break;
-		default:
-			fprintf(stderr,
-					"bootstrap_status(): %s\n", mach_error_string(status));
-			return -1;
-    }
-	
-    gServer_cfport = CFMachPortCreate(NULL, server_handle_request, NULL, NULL);
-    rls = CFMachPortCreateRunLoopSource(NULL, gServer_cfport, 0);
-	gControllerRunloop = CFRunLoopGetCurrent();
-    CFRunLoopAddSource(gControllerRunloop, rls, kCFRunLoopDefaultMode);
-	CFRunLoopAddSource(gControllerRunloop, gTerminalrls, kCFRunLoopDefaultMode);	
-    CFRelease(rls);
-	
-    status = bootstrap_register(bootstrap_port, PPPCONTROLLER_SERVER, 
-								CFMachPortGetPort(gServer_cfport));
-    if (status != BOOTSTRAP_SUCCESS) {
-		mach_error("bootstrap_register", status);
-		return -1;
-    }
-	
-    return 0;
-}
-#else
 int
 ppp_mach_start_server()
 {
@@ -993,12 +1060,15 @@ ppp_mach_start_server()
 		SCLog(TRUE, LOG_ERR, CFSTR("PPPController: cannot create mach port"));
 		return -1;
 	}
+ 
+    gServer_machport = our_port;
 	
 	rls = CFMachPortCreateRunLoopSource(0, gServer_cfport, 0);
 	if (!rls) {
 		SCLog(TRUE, LOG_ERR, CFSTR("PPPController: cannot create rls"));
 		CFRelease(gServer_cfport);
 		gServer_cfport = NULL;
+        gServer_machport = NULL;
 		return -1;
 	}
 
@@ -1010,4 +1080,3 @@ ppp_mach_start_server()
 	return 0;
 	
 }
-#endif

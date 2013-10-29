@@ -92,7 +92,7 @@ struct client *client_new_socket (CFSocketRef ref, int priviledged, uid_t uid, g
 
 /* -----------------------------------------------------------------------------
 ----------------------------------------------------------------------------- */
-struct client *client_new_mach (CFMachPortRef port, CFRunLoopSourceRef rls, CFStringRef serviceID, uid_t uid, gid_t gid, pid_t pid, mach_port_t bootstrap, mach_port_t notify_port, mach_port_t au_session)
+struct client *client_new_mach (CFMachPortRef port, CFRunLoopSourceRef rls, CFStringRef serviceID, uid_t uid, gid_t gid, pid_t pid, mach_port_t bootstrap, mach_port_t notify_port, mach_port_t au_session, Boolean has_machport_priv)
 {
     struct client	*client;
     
@@ -115,6 +115,7 @@ struct client *client_new_mach (CFMachPortRef port, CFRunLoopSourceRef rls, CFSt
 	client->notify_port = notify_port;
 	client->flags &= ~CLIENT_FLAG_IS_SOCKET;
 	client->au_session = au_session;
+    client->has_machport_priv = has_machport_priv;
     TAILQ_INIT(&client->opts_head);
 
     TAILQ_INSERT_TAIL(&client_head, client, next);
@@ -131,7 +132,7 @@ void client_dispose (struct client *client)
     TAILQ_REMOVE(&client_head, client, next);
 
 
-    while (opts = TAILQ_FIRST(&(client->opts_head))) {
+    while ((opts = TAILQ_FIRST(&(client->opts_head)))) {
         
         TAILQ_REMOVE(&(client->opts_head), opts, next);
         CFRelease(opts->serviceid);

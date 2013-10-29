@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004-2011 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 2004-2013 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  *
@@ -29,11 +29,13 @@
 
 #include <mach/std_types.defs>
 #include <mach/mach_types.defs>
+#include "pppcontroller_mach_defines.h"
 
 subsystem pppcontroller 18000;
 serverprefix _;
 
 import "pppcontroller_types.h";
+import "pppcontroller_mach_defines.h";
 
 /*
  * serialized XML data (client->server)
@@ -54,6 +56,13 @@ type xmlDataOut = ^ array [] of MACH_MSG_TYPE_BYTE
 type task_move_send_t = MACH_MSG_TYPE_MOVE_SEND
 	ctype: mach_port_t;
 */
+
+type xmlDataInlineOut_t = array [ * : PPP_MACH_MAX_INLINE_DATA ] of uint8_t
+	ctype : uchar_ptr_out_t;
+
+type xmlDataInline_t = array [ * : PPP_MACH_MAX_INLINE_DATA ] of uint8_t
+	ctype : uchar_ptr_t;
+
 
 /* 
  * routines called by SCNetworkConnection API
@@ -125,6 +134,7 @@ skip;
  */
 routine pppcontroller_bootstrap (	server		: mach_port_t;
 				 out	bootstrap	: bootstrap_t;
+				 out	au_session  : mach_port_t;
 				 out	result		: int;
 				 AuditToken audit_token: audit_token_t);
 
@@ -138,4 +148,7 @@ routine pppcontroller_iscontrolled (	session		: mach_port_t;
 				 out	result		: int;
 				 AuditToken audit_token: audit_token_t);
 
+skip;
+skip;
+skip;
 skip;

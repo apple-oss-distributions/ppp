@@ -85,6 +85,7 @@ struct client {
     u_char	 	*notify_serviceid;	// add service id in the notification
     u_int32_t	 notify_link; 		// link ref we want notification (or 0xFFFFFFFF for all links)
     
+    Boolean     has_machport_priv;  // sandbox mach port privelege
     /* option management */
     TAILQ_HEAD(, client_opts) 	opts_head;
 
@@ -94,7 +95,7 @@ struct client {
 
 u_long client_init_all ();
 struct client *client_new_socket (CFSocketRef ref, int priviledged, uid_t uid, gid_t gid);
-struct client *client_new_mach (CFMachPortRef port, CFRunLoopSourceRef rls, CFStringRef serviceID, uid_t uid, gid_t gid, pid_t pid, mach_port_t bootstrap, mach_port_t notify_port, mach_port_t au_session);
+struct client *client_new_mach (CFMachPortRef port, CFRunLoopSourceRef rls, CFStringRef serviceID, uid_t uid, gid_t gid, pid_t pid, mach_port_t bootstrap, mach_port_t notify_port, mach_port_t au_session, Boolean has_machport_priv);
 void client_dispose (struct client *client);
 CFMutableDictionaryRef client_newoptset (struct client *client, CFStringRef serviceid);
 CFMutableDictionaryRef client_findoptset (struct client *client, CFStringRef serviceid);

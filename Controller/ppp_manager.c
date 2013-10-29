@@ -59,6 +59,7 @@ includes
 #include "ppp_option.h"
 #include "ppp_socket_server.h"
 #include "scnc_utils.h"
+#include "controller_options.h"
 
 #include "../Drivers/PPTP/PPTP-plugin/pptp.h"
 #include "../Drivers/L2TP/L2TP-plugin/l2tp.h"
@@ -221,22 +222,18 @@ void display_error(struct service *serv)
 			case PPP_TYPE_L2TP:
 				// filter out the following messages
 				switch (serv->u.ppp.lastdevstatus) {
-#if TARGET_OS_EMBEDDED
 						/* Error 6 */
 					case EXIT_L2TP_NETWORKCHANGED: /* L2TP Error 6 */
 						return;
-#endif
 				}
 				break;
 				
 			case PPP_TYPE_PPTP:
 				// filter out the following messages
 				switch (serv->u.ppp.lastdevstatus) {
-#if TARGET_OS_EMBEDDED
 						/* Error 6 */
 					case EXIT_PPTP_NETWORKCHANGED: /* PPTP Error 6 */
 						return;
-#endif
 				}
 				break;
 		}
@@ -376,7 +373,8 @@ int ppp_setup_service(struct service *serv)
 		FLAG_SETUP_DISCONNECTONFASTUSERSWITCH +
 		FLAG_SETUP_ONDEMAND +
 		FLAG_DARKWAKE + 
-		FLAG_SETUP_PERSISTCONNECTION);
+		FLAG_SETUP_PERSISTCONNECTION +
+		FLAG_SETUP_DISCONNECTONWAKE);
 
 	my_CFRelease(&serv->systemprefs);
 	serv->systemprefs = copyEntity(gDynamicStore, kSCDynamicStoreDomainSetup, serv->serviceID, kSCEntNetPPP);
@@ -401,9 +399,15 @@ int ppp_setup_service(struct service *serv)
 		getNumber(serv->systemprefs, kSCPropNetPPPDisconnectOnSleep, &lval);
 		if (lval) serv->flags |= FLAG_SETUP_DISCONNECTONSLEEP;
 			
+		/* Currently, OnDemand imples network detection */
 		lval = 0;
 		getNumber(serv->systemprefs, kSCPropNetPPPOnDemandEnabled, &lval);
-		if (lval) serv->flags |= FLAG_SETUP_ONDEMAND;
+		if (lval)
+			serv->flags |= (FLAG_SETUP_ONDEMAND | FLAG_SETUP_NETWORKDETECTION);
+		else if (CFDictionaryGetValue(serv->systemprefs, kSCPropNetVPNOnDemandRules)) {
+			if (controller_options_is_useVODDisconnectRulesWhenVODDisabled())
+				serv->flags |= FLAG_SETUP_NETWORKDETECTION;
+		}
 		
 		// by default, vpn connection don't prevent idle sleep
 		switch (serv->subtype) {
@@ -422,8 +426,14 @@ int ppp_setup_service(struct service *serv)
 		getNumber(serv->systemprefs, CFSTR("DisconnectOnFastUserSwitch"), &lval);
 		if (lval) serv->flags |= FLAG_SETUP_DISCONNECTONFASTUSERSWITCH;
 
+		/* "disconnect on wake" is enabled by default for PPP */
+		lval = 1;
 		serv->sleepwaketimeout = 0;
-		getNumber(serv->systemprefs, CFSTR("DisconnectOnWakeTimer"), &serv->sleepwaketimeout);
+		getNumber(serv->systemprefs, kSCPropNetPPPDisconnectOnWake, &lval);
+		if (lval) {
+			serv->flags |= FLAG_SETUP_DISCONNECTONWAKE;
+			getNumber(serv->systemprefs, kSCPropNetPPPDisconnectOnWakeTimer, &serv->sleepwaketimeout);
+		}
 
 		/* enable "ConnectionPersist" */
 		lval = 0;
@@ -440,7 +450,7 @@ int ppp_setup_service(struct service *serv)
 			//printf("ppp_updatesetup : unit %d, PPP_IDLE\n", ppp->unit);
 			if (serv->flags & FLAG_SETUP_ONTRAFFIC
 				 && (!(serv->flags & FLAG_SETUP_DISCONNECTONLOGOUT) || gLoggedInUser)) {
-					ppp_start(serv, 0, 0, 0, 0, 1, 0);
+					ppp_start(serv, 0, 0, 0, serv->bootstrap, serv->au_session, 1, 0);
 			}
 			break;
 
@@ -523,7 +533,7 @@ void ppp_wake_up(struct service	*serv)
 	if (serv->u.ppp.phase == PPP_IDLE) {
 		if ((serv->flags & FLAG_SETUP_ONTRAFFIC)
 				&& (!(serv->flags & FLAG_SETUP_DISCONNECTONLOGOUT) || gLoggedInUser)) {
-				ppp_start(serv, 0, 0, 0, 0, 1, 0);
+				ppp_start(serv, 0, 0, 0, serv->bootstrap, serv->au_session, 1, 0);
 		}
 	} else {
 		if (DISCONNECT_VPN_IFOVERSLEPT(__FUNCTION__, serv, serv->if_name)) {
@@ -555,7 +565,7 @@ void ppp_log_in(struct service	*serv)
 
 	if (serv->u.ppp.phase == PPP_IDLE
 		&& (serv->flags & FLAG_SETUP_ONTRAFFIC))
-		ppp_start(serv, 0, 0, 0, 0, 1, 0);
+		ppp_start(serv, 0, 0, 0, serv->bootstrap, serv->au_session, 1, 0);
 }
 
 /* -----------------------------------------------------------------------------
@@ -569,7 +579,7 @@ void ppp_log_switch(struct service *serv)
 		case PPP_IDLE:
 			// rearm dial on demand
 			if (serv->flags & FLAG_SETUP_ONTRAFFIC)
-				ppp_start(serv, 0, 0, 0, 0, 1, 0);
+				ppp_start(serv, 0, 0, 0, serv->bootstrap, serv->au_session, 1, 0);
 			break;
 			
 		default:
@@ -619,6 +629,7 @@ int ppp_ondemand_add_service_data(struct service *serv, CFMutableDictionaryRef o
 	string = CFDictionaryGetValue(serv->systemprefs, kSCPropNetPPPCommRemoteAddress);
 	if (isString(string))
 		CFDictionarySetValue(ondemand_dict, kSCNetworkConnectionOnDemandRemoteAddress, string);
+
 	return 0;
 }
 
@@ -825,18 +836,18 @@ int send_pppd_params(struct service *serv, CFDictionaryRef service, CFDictionary
 
 						// merge it into modemdict only some of the keys
 						
-						if (value = CFDictionaryGetValue(dict, kSCPropNetModemConnectionScript))
+						if ((value = CFDictionaryGetValue(dict, kSCPropNetModemConnectionScript)))
 							CFDictionarySetValue(modemdict_mutable, kSCPropNetModemConnectionScript, value);
 
-						if (value = CFDictionaryGetValue(dict, kSCPropNetModemSpeaker))
+						if ((value = CFDictionaryGetValue(dict, kSCPropNetModemSpeaker)))
 							CFDictionarySetValue(modemdict_mutable, kSCPropNetModemSpeaker, value);
-						if (value = CFDictionaryGetValue(dict, kSCPropNetModemErrorCorrection))
+						if ((value = CFDictionaryGetValue(dict, kSCPropNetModemErrorCorrection)))
 							CFDictionarySetValue(modemdict_mutable, kSCPropNetModemErrorCorrection, value);
-						if (value = CFDictionaryGetValue(dict, kSCPropNetModemDataCompression))
+						if ((value = CFDictionaryGetValue(dict, kSCPropNetModemDataCompression)))
 							CFDictionarySetValue(modemdict_mutable, kSCPropNetModemDataCompression, value);
-						if (value = CFDictionaryGetValue(dict, kSCPropNetModemPulseDial))
+						if ((value = CFDictionaryGetValue(dict, kSCPropNetModemPulseDial)))
 							CFDictionarySetValue(modemdict_mutable, kSCPropNetModemPulseDial, value);
-						if (value = CFDictionaryGetValue(dict, kSCPropNetModemDialMode))
+						if ((value = CFDictionaryGetValue(dict, kSCPropNetModemDialMode)))
 							CFDictionarySetValue(modemdict_mutable, kSCPropNetModemDialMode, value);
 							
 						CFRelease(modemdict);
@@ -846,7 +857,7 @@ int send_pppd_params(struct service *serv, CFDictionaryRef service, CFDictionary
 			}
 			
 			/* serialize the modem dictionary, and pass it as a parameter */
-			if (dataref = Serialize(modemdict, &dataptr, &datalen)) {
+			if ((dataref = Serialize(modemdict, &dataptr, &datalen))) {
 
 				writedataparam(optfd, "modemdict", dataptr, datalen);
 				CFRelease(dataref);
@@ -1465,46 +1476,50 @@ int change_pppd_params(struct service *serv, CFDictionaryRef service, CFDictiona
 
 /* -----------------------------------------------------------------------------
 ----------------------------------------------------------------------------- */
-int ppp_start(struct service *serv, CFDictionaryRef options, uid_t uid, gid_t gid, mach_port_t bootstrap, u_int8_t onTraffic, u_int8_t onDemand)
+int ppp_start(struct service *serv, CFDictionaryRef options, uid_t uid, gid_t gid, mach_port_t bootstrap, mach_port_t au_session, u_int8_t onTraffic, u_int8_t onDemand)
 {
 #define MAXARG 10
-    char 			*cmdarg[MAXARG];
-    u_int32_t		i, argi = 0;
-    CFDictionaryRef		service;
-
-    // reset setup flag
-    serv->flags &= ~FLAG_CONFIGCHANGEDNOW;
-    serv->flags &= ~FLAG_CONFIGCHANGEDLATER;
-
+	char 			*cmdarg[MAXARG];
+	u_int32_t		i, argi = 0;
+	CFDictionaryRef		service;
+	
+	// reset setup flag
+	serv->flags &= ~FLAG_CONFIGCHANGEDNOW;
+	serv->flags &= ~FLAG_CONFIGCHANGEDLATER;
+	
 	// reset autodial flag;
-    serv->flags &= ~FLAG_FIRSTDIAL;
-
-    switch (serv->u.ppp.phase) {
-        case PPP_IDLE:
-            break;
-
-        case PPP_DORMANT:	// kill dormant process and post connection flag
-        case PPP_HOLDOFF:
-            my_CFRelease(&serv->u.ppp.newconnectopts);
-            serv->u.ppp.newconnectopts = options;
-            serv->u.ppp.newconnectuid = uid;
-            serv->u.ppp.newconnectgid = gid;
-            serv->u.ppp.newconnectbootstrap = bootstrap;
-            my_CFRetain(serv->u.ppp.newconnectopts);
-
-            scnc_stop(serv, 0, SIGTERM, SCNC_STOP_NONE);
-            serv->flags |= FLAG_CONNECT;
-            return 0;
-
-        default:
+	serv->flags &= ~FLAG_FIRSTDIAL;
+	
+	switch (serv->u.ppp.phase) {
+		case PPP_IDLE:
+			break;
+			
+		case PPP_DORMANT:	// kill dormant process and post connection flag
+		case PPP_HOLDOFF:
+			my_CFRelease(&serv->u.ppp.newconnectopts);
+			serv->u.ppp.newconnectopts = options;
+			serv->u.ppp.newconnectuid = uid;
+			serv->u.ppp.newconnectgid = gid;
+			serv->u.ppp.newconnectbootstrap = bootstrap;
+			serv->u.ppp.newconnectausession = au_session;
+			my_CFRetain(serv->u.ppp.newconnectopts);
+			
+			scnc_stop(serv, 0, SIGTERM, SCNC_STOP_NONE);
+			serv->flags |= FLAG_CONNECT;
+			return 0;
+			
+		default:
 			if (my_CFEqual(options, serv->connectopts)) {
-				// notify client, so at least then can get the status if they were waiting got it 
+				// notify client, so at least then can get the status if they were waiting got it
 				phase_changed(serv, serv->u.ppp.phase);
 				return 0;
 			}
-            return EIO;	// not the right time to dial
-    }
-
+			return EIO;	// not the right time to dial
+	}
+	
+	SCLog(gSCNCDebug, LOG_DEBUG, CFSTR("PPP Controller: VPN System Prefs %@"), serv->systemprefs);
+	SCLog(gSCNCDebug, LOG_DEBUG, CFSTR("PPP Controller: VPN User Options %@"), options);
+    
 	/* remove any pending notification */
 	if (serv->userNotificationRef) {
 		CFUserNotificationCancel(serv->userNotificationRef);
@@ -1539,21 +1554,24 @@ int ppp_start(struct service *serv, CFDictionaryRef options, uid_t uid, gid_t gi
 
     serv->uid = uid;
     serv->gid = gid;
-    serv->bootstrap = bootstrap;
-	if (serv->environmentVars) {
-		CFRelease(serv->environmentVars);
-	}
-	serv->environmentVars = collectEnvironmentVariables(gDynamicStore, serv->serviceID);
 
-	serv->u.ppp.pid = SCNCPluginExecCommand2(NULL,
-											 exec_callback, 
-											 (void*)(uintptr_t)makeref(serv), 
-											 geteuid(), 
-											 getegid(), 
-											 PATH_PPPD, 
-											 cmdarg, 
-											 exec_postfork, 
-											 (void*)(uintptr_t)makeref(serv));
+    scnc_bootstrap_retain(serv, bootstrap);
+    scnc_ausession_retain(serv, au_session);
+    
+    if (serv->environmentVars) {
+	    CFRelease(serv->environmentVars);
+    }
+    serv->environmentVars = collectEnvironmentVariables(gDynamicStore, serv->serviceID);
+
+    serv->u.ppp.pid = SCNCPluginExecCommand2(NULL,
+					     exec_callback, 
+					     (void*)(uintptr_t)makeref(serv), 
+					     geteuid(), 
+					     getegid(), 
+					     PATH_PPPD, 
+					     cmdarg, 
+					     exec_postfork, 
+					     (void*)(uintptr_t)makeref(serv));
     if (serv->u.ppp.pid == -1)
         goto end;
 
@@ -1571,7 +1589,7 @@ int ppp_start(struct service *serv, CFDictionaryRef options, uid_t uid, gid_t gi
     ppp_socket_create_client(serv->u.ppp.statusfd[READ], 1, 0, 0);
 
     serv->u.ppp.laststatus = EXIT_OK;
-    ppp_updatephase(serv, PPP_INITIALIZE);
+    ppp_updatephase(serv, PPP_INITIALIZE, 0);
 	serv->was_running = 0;
 	service_started(serv);
 
@@ -1632,11 +1650,8 @@ exec_postfork(pid_t pid, void *arg)
     } else {
         /* if child */
 
-		gid_t	egid;
-		uid_t	euid;
-		int	i;
-
-		setup_bootstrap_port();
+        uid_t	euid;
+        int	i;
 
         my_close(serv->u.ppp.controlfd[WRITE]);
         serv->u.ppp.controlfd[WRITE] = -1;
@@ -1657,40 +1672,31 @@ exec_postfork(pid_t pid, void *arg)
         /* close any other open FDs */
         for (i = getdtablesize() - 1; i > STDERR_FILENO; i--) close(i);
 
-		// get real and effective ids
-		egid = getegid();
-		euid = geteuid();
+        /* Careful here and with the gid/uid params passed to _SCDPluginExecCommand2()
+         * so that the uid/gid setup code in _SCDPluginExecCommand would be skipped
+         * after this callback function returns. We want this function to be in
+         * full control of UID and GID settings.
+         */
+        euid = geteuid();
+        if (euid != serv->uid) {
+            // only set real (and not effective) UID for pppd which needs to have
+            // its euid to be root so as to toggle between root and user to access
+            // system and user keychain (e.g., SSL certificate private key in system
+            // keychain and user password in user keychain).
+            (void) setruid(serv->uid);
+        }
 
-		if (egid != serv->gid) {
-			(void) setgid(serv->gid);
-		}
-
-		if ((euid != serv->uid) || (egid != serv->gid)) {
-			char		buf[1024];
-			struct passwd	pwd;
-			struct passwd	*result	= NULL;
-
-			if ((getpwuid_r(serv->uid, &pwd, buf, sizeof(buf), &result) == 0) &&
-			     (result != NULL)) {
-				initgroups(result->pw_name, serv->gid);
-			}
-		}
-
-		if (euid != serv->uid) {
-			// only set real (and not effective) UID
-			(void) setruid(serv->uid);
-		}
-
-		applyEnvironmentVariables(serv->environmentVars);
-		my_CFRelease(&serv->environmentVars);
+        applyEnvironmentVariables(serv->environmentVars);
     }
 
     return;
 }
 
-static void
+static Boolean
 ppp_persist_connection_exec_callback (struct service *serv, int exitcode)
 {
+    Boolean pppRestart = FALSE;
+    
 #if !TARGET_OS_EMBEDDED
 	if (serv->persist_connect) {
 		if (serv->persist_connect_status ||
@@ -1710,7 +1716,8 @@ ppp_persist_connection_exec_callback (struct service *serv, int exitcode)
 			STOP_TRACKING_VPN_LOCATION(serv);
 			serv->u.ppp.laststatus = 0;
 			serv->u.ppp.lastdevstatus = 0;
-			ppp_start(serv, serv->persist_connect_opts, serv->uid, serv->gid, serv->bootstrap, 0, (serv->flags & FLAG_ONDEMAND));
+			pppRestart = TRUE;
+			ppp_start(serv, serv->persist_connect_opts, serv->uid, serv->gid, serv->bootstrap, serv->au_session, 0, (serv->flags & FLAG_ONDEMAND));
 		} else if (serv->u.ppp.laststatus != EXIT_USER_REQUEST && serv->u.ppp.laststatus != EXIT_FATAL_ERROR) {
 			serv->flags |= FLAG_ALERTERRORS;
 			display_error(serv);
@@ -1723,6 +1730,7 @@ ppp_persist_connection_exec_callback (struct service *serv, int exitcode)
 		serv->persist_connect_devstatus = 0;
 	}
 #endif
+    return pppRestart;
 }
 
 /* -----------------------------------------------------------------------------
@@ -1731,6 +1739,7 @@ static
 void exec_callback(pid_t pid, int status, struct rusage *rusage, void *context)
 {
     struct service 	*serv = findbyref(TYPE_PPP, (u_int32_t)(uintptr_t)context);
+    Boolean pppRestart = FALSE;
  
 	if (serv == NULL)
 		return;
@@ -1753,7 +1762,7 @@ void exec_callback(pid_t pid, int status, struct rusage *rusage, void *context)
     }
 
     // call the change phae function
-    ppp_updatephase(serv, PPP_IDLE);
+    ppp_updatephase(serv, PPP_IDLE, 0);
 	serv->was_running = 0;
 	service_ended(serv);
 
@@ -1783,23 +1792,31 @@ void exec_callback(pid_t pid, int status, struct rusage *rusage, void *context)
     // now reconnect if necessary    
 	
     if (serv->flags & FLAG_CONNECT) {        
-        ppp_start(serv, serv->u.ppp.newconnectopts, serv->u.ppp.newconnectuid, serv->u.ppp.newconnectgid, serv->u.ppp.newconnectbootstrap, 0, 0);
+        pppRestart = TRUE;
+        ppp_start(serv, serv->u.ppp.newconnectopts, serv->u.ppp.newconnectuid, serv->u.ppp.newconnectgid, serv->u.ppp.newconnectbootstrap, serv->u.ppp.newconnectausession, 0, 0);
         my_CFRelease(&serv->u.ppp.newconnectopts);
         serv->u.ppp.newconnectopts = 0;
-		serv->u.ppp.newconnectuid = 0;
-		serv->u.ppp.newconnectgid = 0;
-		serv->u.ppp.newconnectbootstrap = 0;
+        serv->u.ppp.newconnectuid = 0;
+        serv->u.ppp.newconnectgid = 0;
+        serv->u.ppp.newconnectbootstrap = 0;
+        serv->u.ppp.newconnectausession = 0;
         serv->flags &= ~FLAG_CONNECT;
     }
     else {
         // if config has changed, or ppp was previously a manual connection, then rearm onTraffic if necessary
-		if (failed == 0
-			&& ((serv->flags & (FLAG_CONFIGCHANGEDNOW + FLAG_CONFIGCHANGEDLATER)) || !(serv->flags & FLAG_ONTRAFFIC))
-            && ((serv->flags & FLAG_SETUP_ONTRAFFIC) && (!(serv->flags & FLAG_SETUP_DISCONNECTONLOGOUT)|| gLoggedInUser))) {
-            ppp_start(serv, 0, 0, 0, 0, serv->flags & FLAG_CONFIGCHANGEDNOW ? 1 : 3, 0);
+        if (failed == 0
+	    && ((serv->flags & (FLAG_CONFIGCHANGEDNOW + FLAG_CONFIGCHANGEDLATER)) || !(serv->flags & FLAG_ONTRAFFIC))
+	    && ((serv->flags & FLAG_SETUP_ONTRAFFIC) && (!(serv->flags & FLAG_SETUP_DISCONNECTONLOGOUT)|| gLoggedInUser))) {
+            pppRestart = TRUE;
+            ppp_start(serv, 0, 0, 0, serv->bootstrap, serv->au_session, serv->flags & FLAG_CONFIGCHANGEDNOW ? 1 : 3, 0);
        } else {
-            ppp_persist_connection_exec_callback(serv, exitcode);
+            pppRestart = ppp_persist_connection_exec_callback(serv, exitcode);
        }
+    }
+
+    if (!pppRestart) {
+        scnc_bootstrap_dealloc(serv);
+        scnc_ausession_dealloc(serv);
     }
 }
 
@@ -1843,11 +1860,11 @@ int ppp_stop(struct service *serv, int signal)
             // no break;
             
         case PPP_CONNECTLINK:
-            ppp_updatephase(serv, PPP_DISCONNECTLINK);
+            ppp_updatephase(serv, PPP_DISCONNECTLINK, 0);
             break;
         
         default:
-            ppp_updatephase(serv, PPP_TERMINATE);
+            ppp_updatephase(serv, PPP_TERMINATE, 0);
     }
 
     if (serv->u.ppp.controlfd[WRITE] != -1){
@@ -1991,7 +2008,7 @@ ppp_disconnect_if_location_changed (struct service *serv, int phase)
 /* -----------------------------------------------------------------------------
 phase change for this ppp occured
 ----------------------------------------------------------------------------- */
-void ppp_updatephase(struct service *serv, int phase)
+void ppp_updatephase(struct service *serv, int phase, int ifunit)
 {
 
   /* check if update is received pppd has  exited */
@@ -2011,7 +2028,18 @@ void ppp_updatephase(struct service *serv, int phase)
 	}
     
     serv->u.ppp.phase = phase;
-	phase_changed(serv, phase);
+    phase_changed(serv, phase);
+    /*
+     * Don't publish ppp status here in the controller because we have pppd that's also
+     * publishing the PPP dictionary, causing a race condition. It can happen that the controller
+     * has not received the pppd update at this point, and thus is to write only a status
+     * value to the dynamic store, but by the time the write takes place, pppd just updated
+     * the store with more info which would get wiped out by the write from the controller.
+     *
+     * Instead, we'll rely on ppp status udpates from pppd.
+     *
+    publish_dictnumentry(gDynamicStore, serv->serviceID, kSCEntNetPPP, kSCPropNetPPPStatus, phase);
+     */
 
     switch (serv->u.ppp.phase) {
         case PPP_INITIALIZE:
@@ -2021,8 +2049,8 @@ void ppp_updatephase(struct service *serv, int phase)
 
         case PPP_RUNNING:
             serv->if_name[0] = 0;
-            getStringFromEntity(gDynamicStore, kSCDynamicStoreDomainState, serv->serviceID, 
-                    kSCEntNetPPP, kSCPropInterfaceName, (u_char *)serv->if_name, sizeof(serv->if_name));
+            snprintf(serv->if_name, sizeof(serv->if_name), "ppp%d", ifunit);
+
             serv->was_running = 1;
             SESSIONTRACERESTABLISHED(serv);
             break;
@@ -2244,7 +2272,9 @@ int ppp_copyextendedstatus(struct service *serv, void **reply, u_int16_t *replyl
             my_CFRelease(&dict);
         }
     }
-
+    
+    AddNumber(statusdict, kSCNetworkConnectionStatus, ppp_getstatus(serv));
+    
     /* We are done, now serialize it */
     if ((dataref = Serialize(statusdict, &dataptr, &datalen)) == 0)
         goto fail;
@@ -2335,7 +2365,7 @@ int ppp_copystatistics(struct service *serv, void **reply, u_int16_t *replylen)
         goto fail;
 	}
 
-    bcopy(dataptr, *reply, datalen);    
+    bcopy(dataptr, *reply, datalen);
 
     CFRelease(statsdict);
     CFRelease(dataref);

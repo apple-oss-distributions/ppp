@@ -73,8 +73,10 @@ includes
 #include "ipsec_manager.h"
 #include "ipsec_utils.h"
 #include "scnc_utils.h"
+#include "scnc_cache.h"
 #include "cf_utils.h"
 #include "PPPControllerPriv.h"
+#include "controller_options.h"
 
 //#include <IPSec/IPSec.h>
 //#include <IPSec/IPSecSchemaDefinitions.h>
@@ -436,7 +438,8 @@ int ipsec_setup_service(struct service *serv)
 					 FLAG_SETUP_DISCONNECTONFASTUSERSWITCH +
 					 FLAG_SETUP_ONDEMAND +
 					 FLAG_DARKWAKE +
-					 FLAG_SETUP_PERSISTCONNECTION);
+					 FLAG_SETUP_PERSISTCONNECTION +
+					 FLAG_SETUP_DISCONNECTONWAKE);
 	
 	serv->flags |= (    
 					FLAG_ALERTERRORS +
@@ -450,9 +453,15 @@ int ipsec_setup_service(struct service *serv)
 		return -1;
 	}
 
+	/* Currently, OnDemand imples network detection */
 	lval = 0;
 	getNumber(serv->systemprefs, kSCPropNetIPSecOnDemandEnabled, &lval);
-	if (lval) serv->flags |= FLAG_SETUP_ONDEMAND;
+	if (lval)
+		serv->flags |= (FLAG_SETUP_ONDEMAND | FLAG_SETUP_NETWORKDETECTION);
+	else if (CFDictionaryGetValue(serv->systemprefs, kSCPropNetVPNOnDemandRules)) {
+		if (controller_options_is_useVODDisconnectRulesWhenVODDisabled())
+			serv->flags |= FLAG_SETUP_NETWORKDETECTION;
+	}
 	
 	lval = 0;
 	getNumber(serv->systemprefs, CFSTR("DisconnectOnLogout"), &lval);
@@ -471,13 +480,19 @@ int ipsec_setup_service(struct service *serv)
 	getNumber(serv->systemprefs, CFSTR("DisconnectOnFastUserSwitch"), &lval);
 	if (lval) serv->flags |= FLAG_SETUP_DISCONNECTONFASTUSERSWITCH;
 	
+	/* "disconnect on wake" is enabled by default for IPSec */
+	lval = 1;
+	serv->sleepwaketimeout = 0;
+	getNumber(serv->systemprefs, kSCPropNetIPSecDisconnectOnWake, &lval);
+	if (lval) {
+		serv->flags |= FLAG_SETUP_DISCONNECTONWAKE;
+		getNumber(serv->systemprefs, kSCPropNetIPSecDisconnectOnWakeTimer, &serv->sleepwaketimeout);
+	}
+
 	lval = 1;
 	getNumber(serv->systemprefs, CFSTR("AlertEnable"), &lval);
 	if (!lval) serv->flags &= ~(FLAG_ALERTERRORS + FLAG_ALERTPASSWORDS);
 	
-	serv->sleepwaketimeout = 0;
-	getNumber(serv->systemprefs, CFSTR("DisconnectOnWakeTimer"), &serv->sleepwaketimeout);
-
 	/* enable "ConnectionPersist" */
 	lval = 0;
 	getNumber(serv->systemprefs, CFSTR("ConnectionPersist"), &lval);
@@ -565,11 +580,15 @@ void ipsec_user_notification_callback(struct service *serv, CFUserNotificationRe
 	
 	// note: isakmp_nb can be 0. for exmple, sometime the server just pushes a message information, and we just need to acknowledge
 #if TARGET_OS_EMBEDDED
-	CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE1);
+	if (serv->u.ipsec.timerref) {
+		CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE1);
+	}
 	ipsec_updatephase(serv, IPSEC_PHASE1);
 #else
 	if (serv->u.ipsec.phase == IPSEC_PHASE1AUTH) {
-        CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE1);
+		if (serv->u.ipsec.timerref) {
+			CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE1);
+		}
 		ipsec_updatephase(serv, IPSEC_PHASE1);
 	}
 #endif /* TARGET_OS_EMBEDDED */
@@ -983,11 +1002,15 @@ static int process_xauth_need_info(struct service *serv)
 				}
 
 #if TARGET_OS_EMBEDDED
-				CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE1);
+				if (serv->u.ipsec.timerref) {
+					CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE1);
+				}
 				ipsec_updatephase(serv, IPSEC_PHASE1);
 #else
 				if (serv->u.ipsec.phase == IPSEC_PHASE1AUTH) {
-					CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE1);
+					if (serv->u.ipsec.timerref) {
+						CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE1);
+					}
 					ipsec_updatephase(serv, IPSEC_PHASE1);
 				}
 #endif /* TARGET_OS_EMBEDDED */
@@ -1268,7 +1291,7 @@ static void process_racoon_msg(struct service *serv)
 					ipsec_updatephase(serv, IPSEC_CONTACT);
 				} else if (IPSEC_IS_ASSERTED_IDLE(serv->u.ipsec) ||
 						   IPSEC_IS_ASSERTED_INITIALIZE(serv->u.ipsec)) {
-					if (IPSEC_IS_ASSERTED_IDLE(serv->u.ipsec)) {
+					if (IPSEC_IS_ASSERTED_IDLE(serv->u.ipsec) && serv->u.ipsec.timerref) {
 						CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_INITIAL_CONTACT);
 					}
 					IPSEC_ASSERT_CONTACT(serv->u.ipsec);
@@ -1279,7 +1302,9 @@ static void process_racoon_msg(struct service *serv)
 				SCLog(gSCNCVerbose, LOG_INFO, CFSTR("IPSec Controller: PH1 STARTPEER. phase %d, assert %d"), serv->u.ipsec.phase, serv->u.ipsec.asserted);
 				if (serv->u.ipsec.phase != IPSEC_CONTACT && !IPSEC_IS_ASSERTED_CONTACT(serv->u.ipsec))
 					break;
-				CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE1);
+				if (serv->u.ipsec.timerref) {
+					CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE1);
+				}
 				if (serv->u.ipsec.phase == IPSEC_CONTACT) {
 					ipsec_updatephase(serv, IPSEC_PHASE1);
 				} else if (IPSEC_IS_ASSERTED_CONTACT(serv->u.ipsec)) {
@@ -1301,7 +1326,9 @@ static void process_racoon_msg(struct service *serv)
 						break;
 					}
 				}
-				CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, FAR_FUTURE);
+				if (serv->u.ipsec.timerref) {
+					CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, FAR_FUTURE);
+				}
 				IPSECLOGASLMSG("IPSec requesting Extended Authentication.\n");
 
 				if (process_xauth_need_info(serv)) {
@@ -1320,7 +1347,9 @@ static void process_racoon_msg(struct service *serv)
 						install_mode_config(serv);
 					}
 					serv->u.ipsec.ping_count = MAX_PHASE2_PING;
-					CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE2_PING);
+					if (serv->u.ipsec.timerref) {
+						CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE2_PING);
+					}
 					serv->connecttime = mach_absolute_time() * gTimeScaleSeconds;
 					serv->connectionslepttime = 0;
 				} else if (IPSEC_IS_ASSERTED_PHASE1(serv->u.ipsec)) {
@@ -1338,7 +1367,9 @@ static void process_racoon_msg(struct service *serv)
 				if (serv->u.ipsec.phase != IPSEC_PHASE1 && !IPSEC_IS_ASSERTED_PHASE1(serv->u.ipsec))
 					break;
 				if (serv->u.ipsec.phase == IPSEC_PHASE1) {
-					CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE2);
+					if (serv->u.ipsec.timerref) {
+						CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE2);
+					}
 					ipsec_updatephase(serv, IPSEC_PHASE2);
 				} else if (IPSEC_IS_ASSERTED_PHASE1(serv->u.ipsec)) {
 					IPSEC_ASSERT_PHASE2(serv->u.ipsec);
@@ -1349,7 +1380,9 @@ static void process_racoon_msg(struct service *serv)
 				SCLog(gSCNCVerbose, LOG_INFO, CFSTR("IPSec Controller: PH2 ESTABLISHED. phase %d, assert %d"), serv->u.ipsec.phase, serv->u.ipsec.asserted);
 				if (serv->u.ipsec.phase != IPSEC_PHASE2 && !IPSEC_IS_ASSERTED_PHASE2(serv->u.ipsec))
 					break;
-				CFRunLoopRemoveTimer(CFRunLoopGetCurrent(), serv->u.ipsec.timerref, kCFRunLoopCommonModes);
+				if (serv->u.ipsec.timerref) {
+					CFRunLoopRemoveTimer(CFRunLoopGetCurrent(), serv->u.ipsec.timerref, kCFRunLoopCommonModes);
+				}
 				my_CFRelease(&serv->u.ipsec.timerref);
 				if (serv->u.ipsec.phase == IPSEC_PHASE2) {
 					if (serv->u.ipsec.banner) {
@@ -1424,7 +1457,7 @@ int ipsec_ondemand_add_service_data(struct service *serv, CFMutableDictionaryRef
 	string = CFDictionaryGetValue(serv->systemprefs, kRASPropIPSecRemoteAddress);
 	if (isString(string))
 		CFDictionarySetValue(ondemand_dict, kSCNetworkConnectionOnDemandRemoteAddress, string);
-	
+    
 	return 0;
 }
 /* -----------------------------------------------------------------------------
@@ -1477,6 +1510,7 @@ racoon_trigger_phase2(char *ifname, struct in_addr *ping)
 ----------------------------------------------------------------------------- */
 static void uninstall_mode_config(struct service *serv)
 {
+    CFMutableArrayRef dicts_to_remove;
 	int		error = 0;
 	char	*errorstr;
 	struct in_addr addr;
@@ -1491,10 +1525,13 @@ static void uninstall_mode_config(struct service *serv)
 	
 	clear_ifaddr(serv->if_name, serv->u.ipsec.inner_local_addr, 0xFFFFFFFF); 
 
-	unpublish_dict(gDynamicStore, serv->serviceID, kSCEntNetIPv4);
-	unpublish_dict(gDynamicStore, serv->serviceID, kSCEntNetDNS);
-	unpublish_dict(gDynamicStore, serv->serviceID, NULL);
-	
+    dicts_to_remove = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+    CFArrayAppendValue(dicts_to_remove, kSCEntNetIPv4);
+    CFArrayAppendValue(dicts_to_remove, kSCEntNetDNS);
+    /* Unpublish all-at-once */
+    unpublish_multiple_dicts(gDynamicStore, serv->serviceID, dicts_to_remove, TRUE);
+	my_CFRelease(&dicts_to_remove);
+    
 	if (serv->u.ipsec.modecfg_routes_installed) {
 		addr.s_addr = serv->u.ipsec.inner_local_addr;
 		error = IPSecRemoveRoutes(serv, serv->u.ipsec.modecfg_policies, -1,  &errorstr, addr);
@@ -1532,12 +1569,78 @@ static void uninstall_mode_config(struct service *serv)
 	free_service_routes(serv);
 }
 
+static void format_routes_for_cache (struct service *serv, struct in_addr *included_address_gateway, int isdefault)
+{
+	CFMutableDataRef	includedRouteAddressData = CFDataCreateMutable(kCFAllocatorDefault, 0);
+	CFMutableDataRef	includedRouteMaskData = CFDataCreateMutable(kCFAllocatorDefault, 0);
+	CFMutableDataRef	excludedRouteAddressData = CFDataCreateMutable(kCFAllocatorDefault, 0);
+	CFMutableDataRef	excludedRouteMaskData = CFDataCreateMutable(kCFAllocatorDefault, 0);
+	service_route_t *route = NULL;
+	
+	if (includedRouteAddressData == NULL ||
+		includedRouteMaskData == NULL ||
+		excludedRouteAddressData == NULL ||
+		excludedRouteMaskData == NULL) {
+		goto done;
+	}
+	
+	for (route = serv->u.ipsec.routes; route != NULL; route = route->next) {
+		if (route->gtwy_address.s_addr == included_address_gateway->s_addr) {
+			CFDataAppendBytes(includedRouteAddressData, (uint8_t*)&route->dest_address, sizeof(struct in_addr));
+			CFDataAppendBytes(includedRouteMaskData, (uint8_t*)&route->dest_mask, sizeof(struct in_addr));
+		} else {
+			CFDataAppendBytes(excludedRouteAddressData, (uint8_t*)&route->dest_address, sizeof(struct in_addr));
+			CFDataAppendBytes(excludedRouteMaskData, (uint8_t*)&route->dest_mask, sizeof(struct in_addr));
+		}
+	}
+
+	/* Send info to cache */
+	CFMutableDictionaryRef routesDict = CFDictionaryCreateMutable(kCFAllocatorDefault, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	if (routesDict) {
+		CFMutableDictionaryRef ipv4RoutesDict = CFDictionaryCreateMutable(kCFAllocatorDefault, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		if (ipv4RoutesDict) {
+			if (CFDataGetLength(includedRouteAddressData)) {
+				CFMutableDictionaryRef includedRoutesDict = CFDictionaryCreateMutable(kCFAllocatorDefault, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+				if (includedRoutesDict) {
+					CFDictionaryAddValue(includedRoutesDict, kSCNetworkConnectionNetworkInfoAddresses, includedRouteAddressData);
+					CFDictionaryAddValue(includedRoutesDict, kSCNetworkConnectionNetworkInfoMasks, includedRouteMaskData);
+					CFDictionaryAddValue(ipv4RoutesDict, kSCNetworkConnectionNetworkInfoIncludedRoutes, includedRoutesDict);
+					CFRelease(includedRoutesDict);
+				}
+			}
+			
+			if (CFDataGetLength(excludedRouteAddressData)) {
+				CFMutableDictionaryRef excludedRoutesDict = CFDictionaryCreateMutable(kCFAllocatorDefault, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+				if (excludedRoutesDict) {
+					CFDictionaryAddValue(excludedRoutesDict, kSCNetworkConnectionNetworkInfoAddresses, excludedRouteAddressData);
+					CFDictionaryAddValue(excludedRoutesDict, kSCNetworkConnectionNetworkInfoMasks, excludedRouteMaskData);
+					CFDictionaryAddValue(ipv4RoutesDict, kSCNetworkConnectionNetworkInfoExcludedRoutes, excludedRoutesDict);
+					CFRelease(excludedRoutesDict);
+				}
+			}
+			
+			CFDictionaryAddValue(routesDict, kSCNetworkConnectionNetworkInfoIPv4, ipv4RoutesDict);
+			CFRelease(ipv4RoutesDict);
+		}
+		scnc_cache_routing_table(serv, routesDict, FALSE, (isdefault != 0));
+		CFRelease(routesDict);
+	}
+	
+done:
+	my_CFRelease(&includedRouteAddressData);
+	my_CFRelease(&includedRouteMaskData);
+	my_CFRelease(&excludedRouteAddressData);
+	my_CFRelease(&excludedRouteMaskData);
+}
+
 /* -----------------------------------------------------------------------------
 ----------------------------------------------------------------------------- */
 static void install_mode_config(struct service *serv)
 {
 	struct in_addr addr, mask, local_addr, remote_addr;
 	char	*data;
+    CFDictionaryRef dict = NULL;
+    CFMutableArrayRef dicts_to_publish = NULL, dict_names_to_publish = NULL;
 	int		error, isdefault = 1, len, data_len;
 	char	*errorstr;
 	u_int32_t dns, prefix, local_prefix, remote_prefix; 
@@ -1706,12 +1809,9 @@ static void install_mode_config(struct service *serv)
 	CFDictionarySetValue(policies, kRASPropIPSecPolicies, policies_array);
 	CFRelease(policies_array);
 	
-	if (gSCNCDebug) {
-		CFShow(CFSTR("IPSec Controller: Mode Config Policies"));
-		CFShow(policies);
-	}
+	SCLog(gSCNCDebug, LOG_DEBUG, CFSTR("IPSec Controller: Mode Config Policies %@"), policies);
 		
-	if (error = IPSecInstallPolicies(policies, -1, &errorstr) < 0) {
+	if ((error = IPSecInstallPolicies(policies, -1, &errorstr)) < 0) {
 		SCLog(TRUE, LOG_ERR, CFSTR("IPSec Controller: IPSecInstallPolicies failed '%s'"), errorstr);
 		CFRelease(policies);
 		goto fail;
@@ -1729,6 +1829,11 @@ static void install_mode_config(struct service *serv)
 		SCLog(TRUE, LOG_ERR, CFSTR("IPSec Controller: cannot create tunnel interface"));
 		goto fail;
 	}
+
+    if (set_tun_delegate(serv->u.ipsec.kernctl_sock, serv->u.ipsec.lower_interface)) {
+        SCLog(TRUE, LOG_ERR, CFSTR("IPSec Controller: cannot set delegate interface for tunnel interface"));
+        goto fail;
+    }
 	
 	set_ifmtu(serv->if_name, 1280); 
 	set_ifaddr(serv->if_name, internal_ip4_address, internal_ip4_address,internal_ip4_netmask); 
@@ -1745,6 +1850,12 @@ static void install_mode_config(struct service *serv)
 	/* check if is peer on our local subnet */
 	ref = SCNetworkReachabilityCreateWithAddress(NULL, (struct sockaddr *)&serv->u.ipsec.peer_address);
 	is_peer_local = SCNetworkReachabilityGetFlags(ref, &flags) && (flags & kSCNetworkFlagsIsDirect);
+    
+#if TARGET_OS_EMBEDDED
+	/* Mark interface as cellular based on reachability */
+	serv->u.ipsec.lower_interface_cellular = SCNetworkReachabilityGetFlags(ref, &flags) && (flags & kSCNetworkReachabilityFlagsIsWWAN);
+#endif
+    
 	CFRelease(ref);
 	
 	set_host_gateway(RTM_DELETE, (struct sockaddr *)&serv->u.ipsec.peer_address, (struct sockaddr *)&ip_zeros, 0, 0);
@@ -1766,17 +1877,35 @@ static void install_mode_config(struct service *serv)
 
 	if (!isdefault) {
 		addr.s_addr = internal_ip4_address;
-		if (error = IPSecInstallRoutes(serv, policies, -1, &errorstr, addr) < 0) {
+		if ((error = IPSecInstallRoutes(serv, policies, -1, &errorstr, addr)) < 0) {
 			SCLog(TRUE, LOG_ERR, CFSTR("IPSec Controller: IPSecInstallRoutes failed '%s'"), errorstr);
 		}
 		serv->u.ipsec.modecfg_routes_installed = 1;
 	}
 	
+	format_routes_for_cache(serv, &addr, isdefault);
+    
+    dicts_to_publish = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+    dict_names_to_publish = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+    
+	dict = create_stateaddr(gDynamicStore, serv->serviceID, serv->if_name, serv->u.ipsec.peer_address.sin_addr.s_addr, internal_ip4_address,internal_ip4_address, internal_ip4_netmask, isdefault);
 
-//	publish_stateaddr(gDynamicStore, serv->serviceID, modecfg->inner_local_addr,modecfg->inner_local_addr, modecfg->inner_local_mask, 1);
-	publish_stateaddr(gDynamicStore, serv->serviceID, serv->if_name, serv->u.ipsec.peer_address.sin_addr.s_addr, internal_ip4_address,internal_ip4_address, internal_ip4_netmask, isdefault);
+    if (dict) {
+        CFArrayAppendValue(dict_names_to_publish, kSCEntNetIPv4);
+        CFArrayAppendValue(dicts_to_publish, dict);
+        CFRelease(dict);
+    }
+	
+	if (isdefault) {
+		dict = create_ipv6_dummy_primary(serv->if_name);
+		if (dict) {
+			CFArrayAppendValue(dict_names_to_publish, kSCEntNetIPv6);
+			CFArrayAppendValue(dicts_to_publish, dict);
+			CFRelease(dict);
+		}
+	}
 		
-	if (error = racoon_send_cmd_start_ph2(serv->u.ipsec.controlfd, serv->u.ipsec.peer_address.sin_addr.s_addr, policies) != 0) {
+	if ((error = racoon_send_cmd_start_ph2(serv->u.ipsec.controlfd, serv->u.ipsec.peer_address.sin_addr.s_addr, policies)) != 0) {
 		SCLog(TRUE, LOG_ERR, CFSTR("IPSec Controller: racoon_send_cmd_start_ph2 failed '%s'"), errorstr);
 		goto fail;
 	}
@@ -1792,14 +1921,24 @@ static void install_mode_config(struct service *serv)
 			}
 		}
 		
-		publish_dns(gDynamicStore, serv->serviceID, dns_array, domain_name, split_dns_array);
+		dict = create_dns(gDynamicStore, serv->serviceID, dns_array, domain_name, split_dns_array, FALSE);
+        if (dict) {
+            CFArrayAppendValue(dict_names_to_publish, kSCEntNetDNS);
+            CFArrayAppendValue(dicts_to_publish, dict);
+            CFRelease(dict);
+        }
 	}
-	
 
+
+    /* Publish all-at-once */
+    publish_multiple_dicts(gDynamicStore, serv->serviceID,dict_names_to_publish, dicts_to_publish);
+    SCLog(TRUE, LOG_DEBUG, CFSTR("IPSec Controller: Published dictionaries to dynamic store."));
 	my_CFRelease(&split_dns_array);
 	my_CFRelease(&domain_name);
 	my_CFRelease(&dns_array);
-	
+	my_CFRelease(&dicts_to_publish);
+    my_CFRelease(&dict_names_to_publish);
+    
 	serv->u.ipsec.modecfg_installed = 1;
 
 	IPSECLOGASLMSG("IPSec Network Configuration established.\n");
@@ -1811,6 +1950,8 @@ fail:
 	my_CFRelease(&domain_name);
 	my_CFRelease(&dns_array);
 	my_CFRelease(&serv->u.ipsec.banner);
+    my_CFRelease(&dicts_to_publish);
+    my_CFRelease(&dict_names_to_publish);
 
 	if (serv->u.ipsec.modecfg_routes_installed) {
 		addr.s_addr = serv->u.ipsec.inner_local_addr;
@@ -1840,7 +1981,9 @@ static int unassert_mode_config(struct service *serv)
 	if (serv->u.ipsec.modecfg_installed) {
 		/* we already have a config, so if phase1 is asserted-established stop timer and let racoon take care of the IPSec SAs rekeys */
 		if (IPSEC_IS_ASSERTED_PHASE1(serv->u.ipsec)) {
-			CFRunLoopRemoveTimer(CFRunLoopGetCurrent(), serv->u.ipsec.timerref, kCFRunLoopCommonModes);
+			if (serv->u.ipsec.timerref) {
+				CFRunLoopRemoveTimer(CFRunLoopGetCurrent(), serv->u.ipsec.timerref, kCFRunLoopCommonModes);
+			}
 			my_CFRelease(&serv->u.ipsec.timerref);
 		}
 		return 0;
@@ -1906,7 +2049,9 @@ void racoon_timer(CFRunLoopTimerRef timer, void *info)
 			serv->u.ipsec.ping_count--;
 			//printf("timer_resend ping, addr = 0x%s\n", inet_ntoa(serv->u.ipsec.ping_addr));
 			racoon_trigger_phase2(serv->if_name, &serv->u.ipsec.ping_addr);
-			CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE2_PING);
+			if (serv->u.ipsec.timerref) {
+				CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_PHASE2_PING);
+			}
 			return;
 		}
 	}
@@ -1915,7 +2060,9 @@ void racoon_timer(CFRunLoopTimerRef timer, void *info)
 	if (IPSEC_IS_ASSERTED_IDLE(serv->u.ipsec)) {
 		racoon_send_cmd_reconnect(serv->u.ipsec.controlfd, serv->u.ipsec.peer_address.sin_addr.s_addr);
 		IPSEC_ASSERT_INITIALIZE(serv->u.ipsec);
-		CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_INITIAL_CONTACT);
+		if (serv->u.ipsec.timerref) {
+			CFRunLoopTimerSetNextFireDate(serv->u.ipsec.timerref, CFAbsoluteTimeGetCurrent() + TIMEOUT_INITIAL_CONTACT);
+		}
 		return;
 	}
 	
@@ -2181,7 +2328,7 @@ IPSecCheckVPNInterfaceOrServiceUnrecoverable (SCDynamicStoreRef dynamicStoreRef,
 			} else if (CFStringHasSuffix(s_key, kSCEntNetAirPort)) {
 				// Interface/<vpn_if>/Airport entity
 				if (CFStringHasPrefix(s_key, kSCDynamicStoreDomainSetup)) {
-					CFBooleanRef powerEnable = CFDictionaryGetValue(s_dict, kSCPropNetAirPortPowerEnabled);
+					CFBooleanRef powerEnable = CFDictionaryGetValue(s_dict, SC_AIRPORT_POWERENABLED_KEY);
 					if (isA_CFBoolean(powerEnable) &&
 					    CFEqual(powerEnable, kCFBooleanFalse)) {
 						syslog(LOG_NOTICE, "%s: detected AirPort, PowerEnable == FALSE", location);
@@ -2190,7 +2337,7 @@ IPSecCheckVPNInterfaceOrServiceUnrecoverable (SCDynamicStoreRef dynamicStoreRef,
 					}
 				} else if (CFStringHasPrefix(s_key, kSCDynamicStoreDomainState)) {
 					UInt16      temp;
-					CFNumberRef airStatus = CFDictionaryGetValue(s_dict, CFSTR("Power Status"));
+					CFNumberRef airStatus = CFDictionaryGetValue(s_dict, SC_AIRPORT_POWERSTATUS_KEY);
 					if (isA_CFNumber(airStatus) &&
 					    CFNumberGetValue(airStatus, kCFNumberShortType, &temp)) {
 						if (temp ==0) {
@@ -2540,13 +2687,20 @@ void dns_start_query_callback(int32_t status, struct addrinfo *res, void *contex
 		serv->u.ipsec.resolvedAddress      = addresses;
 		serv->u.ipsec.resolvedAddressError = NETDB_SUCCESS;
 		
-		if (gSCNCDebug) {
-			CFShow(CFSTR("IPSec Controller: resolvedAddress"));
-			CFShow(serv->u.ipsec.resolvedAddress);
-		}
+		SCLog(gSCNCDebug, LOG_DEBUG, CFSTR("IPSec Controller: dns reply: resolvedAddress %@"), serv->u.ipsec.resolvedAddress);
 
+		if (!CFArrayGetCount(serv->u.ipsec.resolvedAddress)) {
+			SCLog(gSCNCVerbose, LOG_INFO, CFSTR("IPSec Controller: dns reply: no IPv4 address in reply"));
+			goto fail;
+		}
+        
 		/* get the first address and start racoon */
 		dataref = CFArrayGetValueAtIndex(serv->u.ipsec.resolvedAddress, serv->u.ipsec.next_address);
+		if (!dataref) {
+			SCLog(gSCNCVerbose, LOG_INFO, CFSTR("IPSec Controller: dns reply: failed to get elem %d from addr array"),
+			      serv->u.ipsec.next_address);
+			goto fail;
+		}
 		bzero(&address, sizeof(address));
 		range.location = 0;
 		range.length = sizeof(address);
@@ -2554,18 +2708,25 @@ void dns_start_query_callback(int32_t status, struct addrinfo *res, void *contex
 		serv->u.ipsec.next_address = 1;
 
 		racoon_restart(serv, &address);
-	} 
+		goto done;
+	}
 	else {
 		
-		SCLog(gSCNCVerbose, LOG_INFO, CFSTR("IPSec Controller: getaddrinfo() failed: %s"), gai_strerror(status));
-		serv->u.ipsec.laststatus = IPSEC_RESOLVEADDRESS_ERROR;	
-		ipsec_stop(serv, 0);
-		/* save the error associated with the attempt to resolve the name */
-		serv->u.ipsec.resolvedAddress      = CFRetain(kCFNull);
-		serv->u.ipsec.resolvedAddressError = status;
+		SCLog(gSCNCVerbose, LOG_INFO, CFSTR("IPSec Controller: dns reply: getaddrinfo() failed: %s"), gai_strerror(status));
+		goto fail;
 	}
+    
+fail:
+	SCLog(gSCNCVerbose, LOG_INFO, CFSTR("IPSec Controller: dns reply: Stopping service"));
+	serv->u.ipsec.laststatus = IPSEC_RESOLVEADDRESS_ERROR;
+	ipsec_stop(serv, 0);
+	/* save the error associated with the attempt to resolve the name */
+	serv->u.ipsec.resolvedAddress      = CFRetain(kCFNull);
+	serv->u.ipsec.resolvedAddressError = status;
 
-	if (res != NULL)	
+done:
+	SCLog(gSCNCDebug, LOG_DEBUG, CFSTR("IPSec Controller: dns reply: done"));
+	if (res != NULL)
 		freeaddrinfo(res);
 
 }
@@ -3071,6 +3232,7 @@ int racoon_restart(struct service *serv, struct sockaddr_in *address)
 	CFStringRef		string;
     CFRunLoopTimerContext	context = { 0, serv, NULL, NULL, NULL };
 	CFDictionaryRef userdict = 0;
+	Boolean			using_temp_xauth_name = FALSE;
 	CFTypeRef		value;
 
 	SCLog(gSCNCVerbose, LOG_INFO, CFSTR("IPSec Controller: racoon_restart..."));
@@ -3179,12 +3341,12 @@ int racoon_restart(struct service *serv, struct sockaddr_in *address)
 			int val;
 
 			val = 1;
-			if (num = CFNumberCreate(NULL, kCFNumberIntType, &val)) {
+			if ((num = CFNumberCreate(NULL, kCFNumberIntType, &val))) {
 				CFDictionarySetValue(serv->u.ipsec.config, kRASPropIPSecDisconnectOnIdle, num);
 				CFRelease(num);
 			}
 			val = 120; // 2 minutes by default
-			if (num = CFNumberCreate(NULL, kCFNumberIntType, &val)) {
+			if ((num = CFNumberCreate(NULL, kCFNumberIntType, &val))) {
 				CFDictionarySetValue(serv->u.ipsec.config, kRASPropIPSecDisconnectOnIdleTimer, num);
 				CFRelease(num);
 			}
@@ -3214,6 +3376,8 @@ int racoon_restart(struct service *serv, struct sockaddr_in *address)
 				CFDictionarySetValue(serv->u.ipsec.config, kRASPropIPSecLocalIdentifier, value1);
 				CFDictionarySetValue(serv->u.ipsec.config, kRASPropIPSecAuthenticationMethod, kRASValIPSecAuthenticationMethodHybrid);
 				CFRelease(value1);
+				CFDictionarySetValue(serv->u.ipsec.config, kRASPropIPSecRemoteIdentifier, remote_address);
+				CFDictionarySetValue(serv->u.ipsec.config, kRASPropIPSecIdentifierVerification, kRASValIPSecIdentifierVerificationUseRemoteIdentifier);
 			}
 		}
 
@@ -3273,12 +3437,17 @@ int racoon_restart(struct service *serv, struct sockaddr_in *address)
 		}
 	}
 	
-	if (gSCNCDebug) {
-		CFShow(CFSTR("IPSec Controller: Complete IPsec dictionary"));
-		CFShow(serv->u.ipsec.config);
-	}
+	SCLog(gSCNCDebug, LOG_DEBUG, CFSTR("IPSec Controller: Complete IPsec dictionary %@"), serv->u.ipsec.config);
 
+	/* Temporarily add in XAuthName if missing when creating the racoon conf file */
+	if (!CFDictionaryContainsKey(serv->u.ipsec.config, kRASPropIPSecXAuthName)) {
+		CFDictionarySetValue(serv->u.ipsec.config, kRASPropIPSecXAuthName, CFSTR(" "));
+		using_temp_xauth_name = TRUE;
+	}
 	error = IPSecApplyConfiguration(serv->u.ipsec.config, &errorstr);
+	if (using_temp_xauth_name) {
+		CFDictionaryRemoveValue(serv->u.ipsec.config, kRASPropIPSecXAuthName);
+	}
 	if (error) {
 		SCLog(TRUE, LOG_ERR, CFSTR("IPSec Controller: Cannot apply configuration, error '%s'"), errorstr);
 		serv->u.ipsec.laststatus = IPSEC_CONFIGURATION_ERROR;
@@ -3394,6 +3563,12 @@ int ipsec_start(struct service *serv, CFDictionaryRef options, uid_t uid, gid_t 
 {
 	char			remoteaddress[255];
 	
+	if (serv->initialized == FALSE) {
+		serv->u.ipsec.laststatus = IPSEC_CONFIGURATION_ERROR;
+		display_notification(serv, NULL, serv->u.ipsec.laststatus, dialog_default_type);
+		return serv->u.ipsec.laststatus;
+	}
+
 	SCLog(gSCNCVerbose, LOG_INFO, CFSTR("IPSec Controller: ipsec_start, ondemand flag = %d"), onDemand);
 	
     switch (serv->u.ipsec.phase) {
@@ -3439,28 +3614,28 @@ int ipsec_start(struct service *serv, CFDictionaryRef options, uid_t uid, gid_t 
 	
     serv->uid = uid;
     serv->gid = gid;
-    serv->bootstrap = bootstrap;
+
+    scnc_bootstrap_retain(serv, bootstrap);
+    
     if (onDemand)
         serv->flags |= FLAG_ONDEMAND;
 	else
 		serv->flags &= ~FLAG_ONDEMAND;
 	serv->flags &= ~FLAG_USECERTIFICATE;
 	
-	if (gSCNCDebug) {
-		CFShow(CFSTR("IPSec Controller: IPSec System Prefs"));
-		CFShow(serv->systemprefs);
-		
-		if (serv->connectopts) {
-			CFShow(CFSTR("IPSec Controller: IPSec User Options"));
-			CFShow(serv->connectopts);
-		}
-		else CFShow(CFSTR("IPSec Controller: IPSec User Options = none"));
-	}
+	SCLog(gSCNCDebug, LOG_DEBUG, CFSTR("IPSec Controller: IPSec System Prefs %@"), serv->systemprefs);
+    
+	SCLog(gSCNCDebug, LOG_DEBUG, CFSTR("IPSec Controller: IPSec User Options %@"), serv->connectopts);
 	
 	/* build the peer address */
 	if (!GetStrFromDict (serv->systemprefs, kRASPropIPSecRemoteAddress, remoteaddress, sizeof(remoteaddress), "")) {
 		serv->u.ipsec.laststatus = IPSEC_NOSERVERADDRESS_ERROR;	
 		SCLog(TRUE, LOG_ERR, CFSTR("IPSec Controller: cannot find RemoteAddress ..."));
+		goto fail;
+	}
+	if (!racoon_validate_cfg_str(remoteaddress)) {
+		serv->u.ipsec.laststatus = IPSEC_NOSERVERADDRESS_ERROR;
+		SCLog(TRUE, LOG_ERR, CFSTR("IPSec Controller: invalid RemoteAddress ..."));
 		goto fail;
 	}
 
@@ -3756,6 +3931,7 @@ int ipsec_stop(struct service *serv, int signal)
 	serv->u.ipsec.ping_count = 0;
 
 	serv->u.ipsec.lower_interface[0] = 0;
+	serv->u.ipsec.lower_interface_cellular = FALSE;
 
 	my_CFRelease(&serv->u.ipsec.resolvedAddress);
 	serv->u.ipsec.resolvedAddress = 0;
@@ -3780,6 +3956,9 @@ int ipsec_stop(struct service *serv, int signal)
 	}
 	serv->u.ipsec.eventfd	= -1;
 
+	scnc_bootstrap_dealloc(serv);
+	scnc_ausession_dealloc(serv);
+     
 	my_CFRelease(&serv->connectopts);
 	my_CFRelease(&serv->u.ipsec.config);
 	
@@ -3943,11 +4122,10 @@ int ipsec_copyextendedstatus(struct service *serv, void **reply, u_int16_t *repl
             CFRelease(dict);
         }
     }
-	
-	if (gSCNCDebug) {
-		CFShow(CFSTR("IPSec Controller: Copy Extended Status\n"));
-		CFShow(statusdict);
-	}
+
+    AddNumber(statusdict, kSCNetworkConnectionStatus, ipsec_getstatus(serv));
+    
+    SCLog(gSCNCDebug, LOG_DEBUG, CFSTR("IPSec Controller: Copy Extended Status %@"), statusdict);
 	
     /* We are done, now serialize it */
     if ((dataref = Serialize(statusdict, &dataptr, &datalen)) == 0)
@@ -4203,9 +4381,10 @@ void display_notification(struct service *serv, CFStringRef message, int errnum,
 		switch (errnum) {
 			case IPSEC_NO_ERROR: /* IPSec Error 0 */
 				return;				
-#if TARGET_OS_EMBEDDED
-			/* Error 15, 16, 17 exists are not display on embedded os */
 			case IPSEC_NETWORKCHANGE_ERROR: /* IPSec Error 15 */
+				return;
+#if TARGET_OS_EMBEDDED
+			/* Errors 16, 17, 19 are not displayed on embedded os */
 			case IPSEC_PEERDISCONNECT_ERROR: /* IPSec Error 16 */
 			case IPSEC_PEERDEADETECTION_ERROR: /* IPSec Error 17 */
 			case IPSEC_IDLETIMEOUT_ERROR: /* IPSec Error 19 */

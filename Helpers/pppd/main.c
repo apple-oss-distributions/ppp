@@ -83,8 +83,11 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#include <pthread.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+
+#include "scnc_utils_common.h"
 
 #include "pppd.h"
 #include "magic.h"
@@ -140,6 +143,8 @@ struct notifier *phasechange = NULL;
 struct notifier *exitnotify = NULL;
 struct notifier *sigreceived = NULL;
 struct notifier *fork_notifier = NULL;
+struct notifier *protocolsready_notifier = NULL;
+struct notifier *acspdhcpready_notifier = NULL;
 
 int hungup;			/* terminal has been hung up */
 int do_modem_hungup;			/* need to finish disconnection */
@@ -352,6 +357,9 @@ main(argc, argv)
     struct protent *protp;
     char numbuf[16];
 
+    /* Initialize syslog facilities */
+    reopen_log();
+
 
 #ifdef __APPLE__
     mainthread_id = pthread_self();
@@ -361,9 +369,6 @@ main(argc, argv)
 
 	
     script_env = NULL;
-
-    /* Initialize syslog facilities */
-    reopen_log();
 
     if (gethostname(hostname, MAXNAMELEN) < 0 ) {
 	option_error("Couldn't get hostname: %m");
@@ -682,7 +687,7 @@ main(argc, argv)
 #else
 	devfd = the_channel->connect();
 #endif
-	if (devfd < 0)
+	if (devfd < 0) {
 #ifdef __APPLE__
             if (devfd == -2) {
                 if (conn_running)
@@ -697,7 +702,7 @@ main(argc, argv)
 #ifdef __APPLE__
             }
 #endif
-
+    }
 #ifdef __APPLE__
         /*
             link_up_done is there to give a chance to a device to implement 

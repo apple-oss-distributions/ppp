@@ -27,6 +27,7 @@
 #include <servers/bootstrap.h>
 
 int ppp_mach_start_server();
+int ppp_mach_start_server_priv();
 
 
 #endif /* _PPP_MACH_SERVER_H */
