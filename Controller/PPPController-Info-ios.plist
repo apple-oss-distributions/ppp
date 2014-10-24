@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>Enabled</key>
+	<false/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>English</string>
 	<key>CFBundleExecutable</key>
@@ -24,16 +26,5 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>1.10</string>
-	<key>MachServices</key>
-	<dict>
-		<key>com.apple.SystemConfiguration.PPPController</key>
-		<true/>
-		<key>com.apple.SystemConfiguration.PPPController-priv</key>
-		<true/>
-	</dict>
-	<key>Requires</key>
-	<array>
-		<string>com.apple.SystemConfiguration.PreferencesMonitor</string>
-	</array>
 </dict>
 </plist>

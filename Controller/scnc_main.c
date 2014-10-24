@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2013 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 2000-2014 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  * 
@@ -59,9 +59,9 @@ includes
 #include <notify.h>
 #include <sys/sysctl.h>
 #include <pthread.h>
-#if TARGET_OS_EMBEDDED
+#if 0 && TARGET_OS_EMBEDDED /* Use the LSResourceProxy SPI (in MobileCoreServices.framework) instead */
 #include <MobileInstallation/MobileInstallation.h>
-#endif			
+#endif	
 #include <NSSystemDirectories.h>
 #include <ifaddrs.h>
 #include <SystemConfiguration/SCNetworkSignature.h>
@@ -122,7 +122,6 @@ static int update_service(CFStringRef serviceID);
 static void finish_update_services();
 static struct service * new_service(CFStringRef serviceID , CFStringRef typeRef, CFStringRef subtypeRef);
 static int dispose_service(struct service *serv);
-static u_short findfreeunit(u_short type, u_short subtype);
 static void post_ondemand_token(CFArrayRef triggersArray);
 static int ondemand_remove_service(struct service *serv);
 
@@ -159,10 +158,11 @@ CFStringRef		gBundleDir = 0;
 CFURLRef			gIconURLRef = 0;
 CFStringRef		gIconDir = 0;
 CFMutableArrayRef	gVPNBundlesRef = 0;
+#if TARGET_OS_EMBEDDED
 io_connect_t		gIOPort;
+long				gSleepArgument = 0;
+#endif
 int					gSleeping;
-long				gSleepArgument;
-CFUserNotificationRef 	gSleepNotification;
 time_t				gSleptAt = -1;
 time_t				gWokeAt = -1;
 uint64_t			gWakeUpTime = 0;
@@ -194,6 +194,7 @@ TAILQ_HEAD(, service) 	service_head;
 static vproc_transaction_t gController_vt = NULL;		/* opaque handle used to track outstanding transactions, used by instant off */
 static int gDarkWake = 0;
 IOPMConnection      gIOconnection = NULL;
+IOPMConnectionMessageToken gSleepToken = 0;
 #endif
 static u_int32_t           gWaitForPrimaryService = 0;
 
@@ -321,13 +322,29 @@ service can be disposed now if necessary
 ----------------------------------------------------------------------------- */
 int allow_dispose(struct service *serv)
 {
-    if (serv->flags & FLAG_FREE) {
+	if (serv->ne_sm_bridge != NULL) {
+		ne_sm_bridge_allow_dispose(serv->ne_sm_bridge);
+		return 1;
+	} else if (serv->flags & FLAG_FREE) {
         dispose_service(serv);
 		return 1;
     }
 	return 0;
 }
 
+
+static int change_sleep_state(Boolean sleep)
+{
+    if (sleep) {
+        gSleeping = 1;
+        time(&gSleptAt);
+        return will_sleep(0);
+    } else {
+        gSleeping = 0;
+        gWakeUpTime = mach_absolute_time();
+        return 0;
+    }
+}
 
 #if	!TARGET_OS_EMBEDDED
 
@@ -342,52 +359,57 @@ void pm_ConnectionHandler(void *param, IOPMConnection connection, IOPMConnection
     /* On in GUI: Capabilities = 0x1f = CPU + Disk + Network + Graphics + Audio. */
     
     IOReturn                ret;
+    int                     delay = 0;
     
-    SCLog(TRUE, LOG_DEBUG, CFSTR("SCNC Controller: pm_ConnectionHandler capabilities = 0x%x."), capabilities);
+    SCLog(TRUE, LOG_DEBUG, CFSTR("SCNC Controller: pm_ConnectionHandler capabilities = 0x%x, sleeping = %d and DarkWake = %d."), capabilities, gSleeping, gDarkWake);
     if ( capabilities & kIOPMSystemPowerStateCapabilityCPU )
     {
         if ((capabilities & kIOPMSystemPowerStateCapabilityNetwork)){
-            /* wake from sleep or darkwake */
-            Boolean fullWake = FALSE, wasDarkWake = gDarkWake;
+            /* dark/full wake from sleep, full wake from dark wake, or dark wake from full wake */
+            Boolean fullWake = FALSE, wasDarkWake = gDarkWake, wasSleeping = gSleeping;
 
             if ((capabilities & NORMALWAKE) == NORMALWAKE) {
                 fullWake = true;
                 time(&gWokeAt); // set fullwake time for OS X
             }
 
-            gDarkWake = !fullWake;
+           	/* wake up to full/dark wake. */
+            if (gSleeping)
+                (void)change_sleep_state(false);
 
-            if (!wasDarkWake) {
-                // We are waking up from sleep to dark/full wake.
-
-                gSleeping = 0;
-                if (gSleepNotification) {
-                    CFUserNotificationCancel(gSleepNotification);
-                    CFRelease(gSleepNotification);
-                    gSleepNotification = 0;
-                }
-				
-                gWakeUpTime = mach_absolute_time();
-            }
-
+            /* Full wake from dark wake. */
             if (wasDarkWake && fullWake)
-            	wake_from_dark();
+                wake_from_dark();
 
-            wake_up(fullWake);
+            /* Full wake from sleep or dark wake.
+             * Note that there is nothing to do for full wake to dark wake.
+             */
+            gDarkWake = !fullWake;
+            if (wasSleeping || wasDarkWake)
+                wake_up(fullWake);
         }
     } else {
-        SCLog(TRUE, LOG_DEBUG, CFSTR("SCNC Controller: pm_ConnectionHandler going to sleep"));
-       /* sleep */
+
+        /* At this moment, the device is going to (full) sleep. The screen had
+         * turned dark. We need to disconnect VPN sessions if so configured but
+         * would not put up any dialog about disconnecting VPN sessions.
+         */
+
         if (0 != capabilities) {
             SCLog(TRUE, LOG_ERR, CFSTR("SCNC Controller: pm_ConnectionHandler capabilities=0x%x, should be 0"), capabilities);
         }
+
+        gDarkWake = 0;
+        delay = change_sleep_state(true);
+        SCLog(TRUE, LOG_DEBUG, CFSTR("SCNC Controller: pm_ConnectionHandler going to sleep, delay = %d."), delay);
     }
 
-    if ((ret = IOPMConnectionAcknowledgeEvent(connection, token)) != kIOReturnSuccess)
+    if (delay) {
+        gSleepToken = token;
+    } else if ((ret = IOPMConnectionAcknowledgeEvent(connection, token)) != kIOReturnSuccess)
         SCLog(TRUE, LOG_ERR, CFSTR("SCNC Controller: IOPMConnectionAcknowledgeEvent fails with error %d."), ret);
-    
+
     return;
-    
 }
 #endif
 
@@ -400,13 +422,58 @@ static void scnc_main_nwi_callback(CFMachPortRef port, void *msg, CFIndex size, 
     my_CFRelease(&changes);
 }
 
+void
+scnc_init_resources(CFBundleRef bundle)
+{
+    CFURLRef urlref;
+	CFURLRef absurlref;
+
+	gBundleURLRef = CFBundleCopyBundleURL(bundle);
+	absurlref = CFURLCopyAbsoluteURL(gBundleURLRef);
+	if (absurlref) {
+		gBundleDir = CFURLCopyPath(absurlref);
+		CFRelease(absurlref);
+	}
+
+	// create plugins dir
+	urlref = CFBundleCopyBuiltInPlugInsURL(bundle);
+	if (urlref) {
+		absurlref = CFURLCopyAbsoluteURL(urlref);
+		if (absurlref) {
+			gPluginsDir = CFURLCopyPath(absurlref);
+			CFRelease(absurlref);
+		}
+		CFRelease(urlref);
+	}
+
+	// create resources dir
+	urlref = CFBundleCopyResourcesDirectoryURL(bundle);
+	if (urlref) {
+		absurlref = CFURLCopyAbsoluteURL(urlref);
+		if (absurlref) {
+			gResourcesDir = CFURLCopyPath(absurlref);
+			CFRelease(absurlref);
+		}
+		CFRelease(urlref);
+	}
+
+	// create misc notification strings
+	gIconURLRef = CFBundleCopyResourceURL(bundle, CFSTR(ICON), NULL, NULL);
+	if (gIconURLRef) {
+		absurlref = CFURLCopyAbsoluteURL(gIconURLRef);
+		if (absurlref) {
+			gIconDir = CFURLCopyPath(absurlref);
+			CFRelease(absurlref);
+		}
+	}
+
+}
+
 /* -----------------------------------------------------------------------------
 ----------------------------------------------------------------------------- */
 int init_things()
 {
-    CFURLRef 		urlref, absurlref;
 	IONotificationPortRef	notify;
-    io_object_t			iterator;
     mach_timebase_info_data_t   timebaseInfo;
     CFStringRef         key = NULL, setup = NULL, entity = NULL;
     CFMutableArrayRef	keys = NULL, patterns = NULL;
@@ -426,49 +493,13 @@ int init_things()
 #endif
         NULL,
     };
-#if	!TARGET_OS_EMBEDDED
+#if	TARGET_OS_EMBEDDED
+    io_object_t			iterator;
+#else
     IOReturn ioret;
 #endif
-	
-	gBundleURLRef = CFBundleCopyBundleURL(gBundleRef);
- 	absurlref = CFURLCopyAbsoluteURL(gBundleURLRef);
-	if (absurlref) {
-		gBundleDir = CFURLCopyPath(absurlref);
-		CFRelease(absurlref);
-	}
- 
-    // create plugins dir
-    urlref = CFBundleCopyBuiltInPlugInsURL(gBundleRef);
-    if (urlref) {
-        absurlref = CFURLCopyAbsoluteURL(urlref);
-		if (absurlref) {
-            gPluginsDir = CFURLCopyPath(absurlref);
-            CFRelease(absurlref);
-        }
-        CFRelease(urlref);
-    }
 
-    // create resources dir
-    urlref = CFBundleCopyResourcesDirectoryURL(gBundleRef);
-    if (urlref) {
-        absurlref = CFURLCopyAbsoluteURL(urlref);
-		if (absurlref) {
-            gResourcesDir = CFURLCopyPath(absurlref);
-            CFRelease(absurlref);
-        }
-        CFRelease(urlref);
-    }
-
-    // create misc notification strings
-    gIconURLRef = CFBundleCopyResourceURL(gBundleRef, CFSTR(ICON), NULL, NULL);
- 	if (gIconURLRef) {
-		absurlref = CFURLCopyAbsoluteURL(gIconURLRef);
-		if (absurlref) {
-			gIconDir = CFURLCopyPath(absurlref);
-			CFRelease(absurlref);
-		}
-	}
-	
+	scnc_init_resources(gBundleRef);
 
 	reachability_init(CFRunLoopGetCurrent(), kCFRunLoopDefaultMode,
 		^(struct service *serv) {
@@ -481,9 +512,9 @@ int init_things()
 	
 	/* setup power management callback  */
     gSleeping = 0;
-    gSleepNotification = 0;    
     gStopRls = 0;    
 
+#if	TARGET_OS_EMBEDDED
     gIOPort = IORegisterForSystemPower(0, &notify, iosleep_notifier, &iterator);
     if (gIOPort == 0) {
         SCLog(TRUE, LOG_ERR, CFSTR("SCNC Controller: IORegisterForSystemPower failed"));
@@ -493,7 +524,8 @@ int init_things()
     CFRunLoopAddSource(CFRunLoopGetCurrent(),
                        IONotificationPortGetRunLoopSource(notify),
                        kCFRunLoopDefaultMode);
-    
+#endif
+
 #if	!TARGET_OS_EMBEDDED
 
     ioret = IOPMConnectionCreate( CFSTR("VPN"), kIOPMSystemPowerStateCapabilityDisk 
@@ -692,49 +724,36 @@ fail:
 /* -----------------------------------------------------------------------------
 call back from power management
 ----------------------------------------------------------------------------- */
+#if	TARGET_OS_EMBEDDED
 static 
 void iosleep_notifier(void * x, io_service_t y, natural_t messageType, void *messageArgument)
 {
-    CFMutableDictionaryRef 	dict;
-    SInt32 			error;
     int 			delay;
 
     //printf("messageType %08lx, arg %08lx\n",(long unsigned int)messageType, (long unsigned int)messageArgument);
+    SCLog(TRUE, LOG_DEBUG, CFSTR("SCNC Controller: iosleep_notifier event %lx"), (long unsigned int)messageType);
     
     switch ( messageType ) {
     
         case kIOMessageSystemWillSleep:
-            gSleeping  = 1;	// time to sleep
-            gSleepArgument = (long)messageArgument;   
-            time(&gSleptAt);
+            SCLog(TRUE, LOG_DEBUG, CFSTR("SCNC Controller: iosleep_notifier kIOMessageSystemWillSleep, sleep arg %d"), (long)messageArgument);
+            /* On iOS devices, we should never put up any dialog to inform
+             * users of vpn session diconnection, but we'll delay the
+             * call to IOAllowPowerChange() to be after the disconnection.
+             */
              
-            delay = will_sleep(0);
+            delay = change_sleep_state(true);
             if (delay == 0)
                 IOAllowPowerChange(gIOPort, (long)messageArgument);
-            else {
-#if	!TARGET_OS_EMBEDDED
-                if (gDarkWake)      /* we are in dark wake, do not display error */
-                    break;
-#endif
-                if (delay & 2) {
-                    dict = CFDictionaryCreateMutable(NULL, 0, 
-                        &kCFCopyStringDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-                    if (dict) {
-                        CFDictionaryAddValue(dict, kCFUserNotificationIconURLKey, gIconURLRef);
-                        CFDictionaryAddValue(dict, kCFUserNotificationLocalizationURLKey, gBundleURLRef);
-                        CFDictionaryAddValue(dict, kCFUserNotificationAlertHeaderKey, CFSTR("Network Connection"));
-                        CFDictionaryAddValue(dict, kCFUserNotificationAlertMessageKey, CFSTR("Waiting for disconnection"));
-                        gSleepNotification = CFUserNotificationCreate(NULL, 0, 
-                                            kCFUserNotificationNoteAlertLevel 
-                                            + kCFUserNotificationNoDefaultButtonFlag, &error, dict);
-						CFRelease(dict);
-                    }
-                }
-            }
+            else 
+                gSleepArgument = (long)messageArgument;   	// save event context for IOAllowPowerChange() later.
             break;
 
         case kIOMessageCanSystemSleep:
-            if (can_sleep()) 
+            
+            SCLog(TRUE, LOG_DEBUG, CFSTR("SCNC Controller: iosleep_notifier kIOMessageCanSystemSleep"));
+
+            if (can_sleep())
                 IOAllowPowerChange(gIOPort, (long)messageArgument);
             else
                 IOCancelPowerChange(gIOPort, (long)messageArgument);
@@ -746,30 +765,19 @@ void iosleep_notifier(void * x, io_service_t y, natural_t messageType, void *mes
             break;
 			
         case kIOMessageSystemWillPowerOn:
-#if TARGET_OS_EMBEDDED
-			gSleeping = 0; // time to wakeup
-			gWakeUpTime = mach_absolute_time();
-            if (gSleepNotification) {
-                CFUserNotificationCancel(gSleepNotification);
-                CFRelease(gSleepNotification);
-                gSleepNotification = 0;
-            }
-#else
+            (void)change_sleep_state(false);
             SCLog(TRUE, LOG_DEBUG, CFSTR("SCNC Controller: iosleep_notifier kIOMessageSystemWillPowerOn"));
-#endif
             break;
             
         case kIOMessageSystemHasPoweredOn:
-#if TARGET_OS_EMBEDDED
             time(&gWokeAt);
             wake_up(TRUE);
-#else
             SCLog(TRUE, LOG_DEBUG, CFSTR("SCNC Controller: iosleep_notifier kIOMessageSystemHasPoweredOn"));
-#endif
             break;
     }
-    
 }
+#else
+#endif
 
 void do_network_signature_changed()
 {
@@ -1152,16 +1160,30 @@ system is allowed to sleep now
 ----------------------------------------------------------------------------- */
 int allow_sleep()
 {
+	int rc = 0;
+
+	SCLog(TRUE, LOG_DEBUG, CFSTR("SCNC Controller: allow_sleep, sleeping %d"), gSleeping);
+
 	if (gSleeping && !will_sleep(1)) {
-        if (gSleepNotification) {
-            CFUserNotificationCancel(gSleepNotification);
-            CFRelease(gSleepNotification);
-            gSleepNotification = 0;
-        }
-        IOAllowPowerChange(gIOPort, gSleepArgument);
-		return 1;
-    }
-	return 0;
+#if	TARGET_OS_EMBEDDED
+		SCLog(TRUE, LOG_DEBUG, CFSTR("SCNC Controller: can sleep now, sleep arg %d."), gSleepArgument);
+		if (gSleepArgument) {
+			IOAllowPowerChange(gIOPort, gSleepArgument);
+			gSleepArgument = 0;
+		}
+#else
+		SCLog(TRUE, LOG_DEBUG, CFSTR("SCNC Controller: can sleep now, sleep token %d."), gSleepToken);
+		if (gSleepToken) {
+			IOReturn ret;
+			ret = IOPMConnectionAcknowledgeEvent(gIOconnection, gSleepToken);
+			gSleepToken = 0;
+			if (ret != kIOReturnSuccess)
+				SCLog(TRUE, LOG_ERR, CFSTR("SCNC Controller: allow_sleep fails with error %d."), ret);
+		}
+#endif
+		rc = 1;
+	}
+	return (rc);
 }
 
 #if	!TARGET_OS_EMBEDDED
@@ -1191,7 +1213,7 @@ void service_started(struct service *serv)
 			/* transaction started */
 			serv->vt = vproc_transaction_begin(NULL);
 			if ( serv->vt == NULL)
-				SCLog(TRUE, LOG_ERR, CFSTR("SCNC Controller: vproc_transaction_begin rts NULL"));
+				scnc_log(LOG_ERR, CFSTR("SCNC Controller: vproc_transaction_begin rts NULL"));
 #endif
 			break;
 		case TYPE_IPSEC:  
@@ -1227,7 +1249,7 @@ service_ending_verify_primaryservice(struct service *serv)
 #endif
 			gWaitForPrimaryService = 1;
 
-		SCLog(TRUE, LOG_ERR, CFSTR("SCNC Controller: %s, waiting for PrimaryService. status = %x."),
+		scnc_log(LOG_INFO, CFSTR("SCNC Controller: %s, waiting for PrimaryService. status = %x."),
 			  __FUNCTION__, gWaitForPrimaryService);
     }
 	
@@ -1545,7 +1567,6 @@ int dispose_service(struct service *serv)
     my_CFRelease(&serv->subtypeRef);
     my_CFRelease(&serv->authSubtypeRef);
     my_CFRelease(&serv->typeRef);
-    my_CFRelease(&serv->environmentVars);
     my_CFRelease(&serv->ondemandAction);
     my_CFRelease(&serv->ondemandActionParameters);
     my_CFRelease(&serv->ondemandProbeResults);
@@ -1553,6 +1574,10 @@ int dispose_service(struct service *serv)
     my_CFRelease(&serv->ondemandSavedDns);
     my_CFRelease(&serv->dnsRedirectedAddresses);
     my_CFRelease(&serv->routeCache);
+    if (serv->envKeys)
+        free(serv->envKeys);
+    if (serv->envValues)
+        free(serv->envValues);
     free(serv);
     return 0;
 }
@@ -1662,6 +1687,10 @@ void finish_update_services()
 				continue;
 			}
 			serv->initialized = TRUE;
+
+			if (ne_session_use_as_system_vpn()) {
+				serv->flags &= ~(FLAG_SETUP_ONDEMAND | FLAG_SETUP_NETWORKDETECTION);
+			}
 			
 #if TARGET_OS_EMBEDDED
 			my_CFRelease(&serv->profileIdentifier);
@@ -1688,10 +1717,6 @@ void finish_update_services()
 				check_network(serv);
 			}
 		}
-    }
-
-    if (!on_demand_configured) {
-        behaviors_cancel_asset_check();
     }
 }
 
@@ -1788,7 +1813,6 @@ struct service *findbyref(u_int16_t type, u_int32_t ref)
 /* -----------------------------------------------------------------------------
 get the first free ref number within a given type
 ----------------------------------------------------------------------------- */
-static 
 u_short findfreeunit(u_short type, u_short subtype)
 {
     struct service		*serv = TAILQ_FIRST(&service_head);
@@ -1838,11 +1862,14 @@ void print_services()
  ----------------------------------------------------------------------------- */
 void phase_changed(struct service *serv, int phase)
 {
-	
-	if (serv->flags & FLAG_SETUP_ONDEMAND)
-		ondemand_add_service(serv, FALSE);
+	if (serv->ne_sm_bridge == NULL) {
+		if (serv->flags & FLAG_SETUP_ONDEMAND)
+			ondemand_add_service(serv, FALSE);
 
-    client_notify(serv->serviceID, serv->sid, makeref(serv), phase, 0, CLIENT_FLAG_NOTIFY_STATUS, scnc_getstatus(serv));
+		client_notify(serv->serviceID, serv->sid, makeref(serv), phase, 0, CLIENT_FLAG_NOTIFY_STATUS, scnc_getstatus(serv));
+	} else {
+		ne_sm_bridge_status_changed(serv->ne_sm_bridge);
+	}
 }
 
 #if TARGET_OS_EMBEDDED
@@ -1951,7 +1978,9 @@ static void post_ondemand_token(CFArrayRef triggersArray)
 			CFDictionaryRef triggerDict = CFArrayGetValueAtIndex(triggersArray, i);
 			if (isDictionary(triggerDict)) {
 				CFStringRef action = CFDictionaryGetValue(triggerDict, kSCPropNetVPNOnDemandRuleAction);
-				if (action == NULL ||
+				CFBooleanRef app_on_demand = CFDictionaryGetValue(triggerDict, kSCNetworkConnectionOnDemandMatchAppEnabled);
+				if (app_on_demand != NULL ||
+					action == NULL ||
 					(!CFEqual(action, kSCValNetVPNOnDemandRuleActionIgnore) &&
 					 !CFEqual(action, kSCValNetVPNOnDemandRuleActionDisconnect))) {
 						/* If not Ignore or Disconnect, post trigger */
@@ -3079,42 +3108,148 @@ int scnc_getstatus(struct service *serv)
 ----------------------------------------------------------------------------- */
 int scnc_copyextendedstatus(struct service *serv, void **reply, u_int16_t *replylen)
 {
-	int ret = -1;
+	CFDictionaryRef statusdict = NULL;
+    CFDataRef dataref = 0;
+	int error = EINVAL;
+
+	*reply = NULL;
+	*replylen = 0;
 	
 	switch (serv->type) {
-		case TYPE_PPP: ret = ppp_copyextendedstatus(serv, reply, replylen); break;
-		case TYPE_IPSEC:  ret = ipsec_copyextendedstatus(serv, reply, replylen); break;
+		case TYPE_PPP: error = ppp_copyextendedstatus(serv, &statusdict); break;
+		case TYPE_IPSEC: error = ipsec_copyextendedstatus(serv, &statusdict); break;
+	}
+
+	if (statusdict != NULL && error == 0) {
+		void *dataptr = 0;
+		uint32_t datalen = 0;
+
+		/* We are done, now serialize it */
+		if ((dataref = Serialize(statusdict, &dataptr, &datalen)) == 0) {
+			error = ENOMEM;
+			goto fail;
+		}
+    
+		*reply = my_Allocate(datalen);
+		if (*reply == 0) {
+			error = ENOMEM;
+			goto fail;
+		}
+
+		bcopy(dataptr, *reply, datalen);    
+		*replylen = datalen;
 	}
 	
-	return ret;
+fail:
+    if (statusdict) {
+        CFRelease(statusdict);
+	}
+    if (dataref) {
+        CFRelease(dataref);
+	}
+
+	if (error != 0) {
+		scnc_log(LOG_NOTICE, CFSTR("Copy extended status for %@ failed: %s"), serv->serviceID, strerror(error));
+	}
+	
+	return error;
 }
 
 /* -----------------------------------------------------------------------------
 ----------------------------------------------------------------------------- */
 int scnc_copystatistics(struct service *serv, void **reply, u_int16_t *replylen)
 {
-	int ret = -1;
+	CFDictionaryRef statsdict = NULL;
+	CFDataRef dataref = NULL;
+	int error = EINVAL;
+
+	*reply = NULL;
+	*replylen = 0;
 	
 	switch (serv->type) {
-		case TYPE_PPP: ret = ppp_copystatistics(serv, reply, replylen); break;
-		case TYPE_IPSEC:  ret = ipsec_copystatistics(serv, reply, replylen); break;
+		case TYPE_PPP: error = ppp_copystatistics(serv, &statsdict); break;
+		case TYPE_IPSEC:  error = ipsec_copystatistics(serv, &statsdict); break;
+	}
+
+	if (statsdict != NULL && error == 0) {
+		void *dataptr = NULL;
+		uint32_t datalen = 0;
+
+		/* We are done, now serialize it */
+		if ((dataref = Serialize(statsdict, &dataptr, &datalen)) == 0) {
+			error = ENOMEM;
+			goto fail;
+		}
+    
+		*reply = my_Allocate(datalen);
+		if (*reply == 0) {
+			error = ENOMEM;
+			goto fail;
+		}
+
+		bcopy(dataptr, *reply, datalen);    
+		*replylen = datalen;
 	}
 	
-	return ret;
+fail:
+    if (statsdict) {
+        CFRelease(statsdict);
+	}
+    if (dataref) {
+        CFRelease(dataref);
+	}
+
+	if (error != 0) {
+		scnc_log(LOG_NOTICE, CFSTR("Copy statistics for %@ failed: %s"), serv->serviceID, strerror(error));
+	}
+	
+	return error;
 }
 
 /* -----------------------------------------------------------------------------
 ----------------------------------------------------------------------------- */
 int scnc_getconnectdata(struct service *serv, void **reply, u_int16_t *replylen, int all)
 {
-	int ret = -1;
+	CFDictionaryRef options = NULL;
+	CFDataRef dataref = NULL;
+	int error = EINVAL;
+	
+	*reply = NULL;
+	*replylen = 0;
 	
 	switch (serv->type) {
-		case TYPE_PPP: ret = ppp_getconnectdata(serv, reply, replylen, all); break;
-		case TYPE_IPSEC:  ret = ipsec_getconnectdata(serv, reply, replylen, all); break;
+		case TYPE_PPP: error = ppp_getconnectdata(serv, &options, all); break;
+		case TYPE_IPSEC:  error = ipsec_getconnectdata(serv, &options, all); break;
+	}
+
+	if (options != NULL && error == 0) {
+		void *dataptr = NULL;
+		u_int32_t datalen = 0;
+
+    	if ((dataref = Serialize(options, &dataptr, &datalen)) == 0) {
+			error = ENOMEM;
+        	goto fail;
+    	}
+    
+		*reply = my_Allocate(datalen);
+		if (*reply == 0) {
+			error = ENOMEM;
+			goto fail;
+		} else {
+			bcopy(dataptr, *reply, datalen);
+			*replylen = datalen;
+		}
+	}
+
+fail:
+	if (dataref) {
+		CFRelease(dataref);
+	}
+	if (options) {
+		CFRelease(options);
 	}
 	
-	return ret;
+	return error;
 }
 
 /* -----------------------------------------------------------------------------
@@ -3132,7 +3267,7 @@ int scnc_getconnectsystemdata(struct service *serv, void **reply, u_int16_t *rep
 }
 
 #if !TARGET_OS_EMBEDDED
-static double scnc_getsleepwaketimeout (struct service *serv)
+double scnc_getsleepwaketimeout (struct service *serv)
 {
 	if (serv->sleepwaketimeout == 0)
 		return (double)gSleepWakeTimeout;
@@ -3140,7 +3275,7 @@ static double scnc_getsleepwaketimeout (struct service *serv)
 }
 #endif
 
-static void scnc_idle_disconnect (struct service *serv)
+void scnc_idle_disconnect (struct service *serv)
 {
 	switch (serv->type) {
 	case TYPE_PPP:
@@ -3156,7 +3291,6 @@ static void scnc_idle_disconnect (struct service *serv)
 		serv->u.vpn.disconnect_reason = kVPNValTunnelDisconnectReasonIdleTimeout;
 		vpn_stop(serv);
 		break;
-
 	}
 }
 
@@ -3171,8 +3305,9 @@ int scnc_disconnectifoverslept (const char *function, struct service *serv, char
 		      sleptFor,
 		      if_name);
 		scnc_idle_disconnect(serv);
+        return 1;
 	}
-	return 1;
+	return 0;
 #else
 	if ((serv->flags & FLAG_SETUP_DISCONNECTONWAKE) &&
 		(gWokeAt != -1) && (gSleptAt != -1)) {
@@ -3333,5 +3468,4 @@ void ondemand_clear_pause_all(onDemandPauseStateType type_to_clear)
 		}
     }
 }
-
 
