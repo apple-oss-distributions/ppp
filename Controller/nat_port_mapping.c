@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 2010-2016 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  * 
@@ -185,7 +185,8 @@ ignorePortMappingUpdate (DNSServiceRef       sdRef,
 				&& ifa->ifa_addr
 				&& !strncmp(ifa->ifa_name, if_name, if_name_siz)
 				&& ifa->ifa_addr->sa_family == AF_INET
-				&& (ALIGNED_CAST(struct sockaddr_in *)ifa->ifa_addr)->sin_addr.s_addr == serv->u.ipsec.our_address.sin_addr.s_addr) {
+				&& serv->u.ipsec.our_address.ss_family == AF_INET
+				&& (ALIGNED_CAST(struct sockaddr_in *)ifa->ifa_addr)->sin_addr.s_addr == ((struct sockaddr_in *)&serv->u.ipsec.our_address)->sin_addr.s_addr) {
 				found = 1;
 			}
 		}
@@ -253,7 +254,7 @@ ignorePortMappingUpdate (DNSServiceRef       sdRef,
 			return 0;
 		}
 		/* check if address still exist */
-		if (serv->type == TYPE_IPSEC && serv->u.ipsec.our_address.sin_addr.s_addr == htonl(publicAddress) && found) {
+		if (serv->type == TYPE_IPSEC && serv->u.ipsec.our_address.ss_family == AF_INET && ((struct sockaddr_in *)&serv->u.ipsec.our_address)->sin_addr.s_addr == htonl(publicAddress) && found) {
 			return 0;
 		}
 		// change due to another interface, ignore for now
@@ -411,7 +412,7 @@ setPortMappingCallback (DNSServiceRef        sdRef,
 				stop_public_nat_port_mapping_timer(serv);				
 			}
 			
-			if (serv->type == TYPE_IPSEC && serv->u.ipsec.our_address.sin_addr.s_addr == htonl(publicAddress) &&
+			if (serv->type == TYPE_IPSEC && serv->u.ipsec.our_address.ss_family == AF_INET && ((struct sockaddr_in *)&serv->u.ipsec.our_address)->sin_addr.s_addr == htonl(publicAddress) &&
 				privatePort == publicPort) {
 				SCLog(TRUE, LOG_NOTICE, CFSTR("%s port-mapping update for %s indicates no NAT. Public Address: %x, Protocol: %s, Private Port: %d, Public Port: %d."),
 					   sd_name,
@@ -440,7 +441,7 @@ setPortMappingCallback (DNSServiceRef        sdRef,
 					serv->nat_mapping[i].protocol = protocol;
 				} else if (serv->nat_mapping[i].privatePort != privatePort) {
 					SCLog(TRUE, LOG_INFO, CFSTR("%s port-mapping for %s inconsistent. is Connected: %d, Previous privatePort: %d, Current privatePort %d."),
-						   sd_name, if_name, serv->nat_mapping[i].privatePort, privatePort);
+						   sd_name, if_name, is_connected, serv->nat_mapping[i].privatePort, privatePort);
 					serv->nat_mapping[i].privatePort = privatePort;
 				}
 			}
