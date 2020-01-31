@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2009, 2014 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2009, 2014, 2018 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  * 
@@ -79,6 +79,7 @@ u_int16_t ipsec_subtype(CFStringRef subtypeRef);
 int ipsec_new_service(struct service *serv);
 int ipsec_dispose_service(struct service *serv);
 int ipsec_setup_service(struct service *serv);
+void ipsec_set_initial_values(struct service *serv, CFDictionaryRef initialValues);
 
 int ipsec_start(struct service *serv, CFDictionaryRef options, uid_t uid, gid_t gid, mach_port_t bootstrap, u_int8_t onTraffic, u_int8_t onDemand);
 int ipsec_stop(struct service *serv, int signal);
@@ -104,6 +105,6 @@ int ipsec_ondemand_add_service_data(struct service *serv, CFMutableDictionaryRef
 void ipsec_cellular_event(struct service *serv, int event);
 void ipsec_network_event(struct service *serv, struct kern_event_msg *ev_msg);
 
-int ipsec_init_things();
+int ipsec_init_things(void);
 
 #endif

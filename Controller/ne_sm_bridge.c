@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014 Apple Inc.
+ * Copyright (c) 2014, 2018 Apple Inc.
  * All rights reserved.
  */
 #include <syslog.h>
@@ -13,6 +13,7 @@
 #include <xpc/private.h>
 #include <SystemConfiguration/SystemConfiguration.h>
 #include <SystemConfiguration/SNHelperPrivate.h>
+#include <SystemConfiguration/SCPrivate.h>
 
 #include "ne_sm_bridge_private.h"
 
@@ -312,6 +313,18 @@ bridge_create(ne_sm_bridge_type_t type, CFStringRef serviceID, void *info)
 }
 
 static void
+bridge_set_initial_values(ne_sm_bridge_t bridge, CFDictionaryRef initialValues)
+{
+	if (!isA_CFDictionary(initialValues)) {
+		return;
+	}
+
+	if (bridge->type == NESMBridgeTypeIPSec) {
+		ipsec_set_initial_values(&bridge->serv, initialValues);
+	}
+}
+
+static void
 bridge_handle_network_change_event(ne_sm_bridge_t bridge, const char *ifname, nwi_ifstate_flags flags)
 {
 	if (bridge->type == NESMBridgeTypeIPSec && scnc_getstatus(&bridge->serv) != kSCNetworkConnectionDisconnected) {
@@ -417,7 +430,7 @@ bridge_handle_sleep_time(ne_sm_bridge_t bridge, double sleep_time)
 	ne_sm_bridge_log(LOG_INFO, CFSTR("System slept for %f secs"), sleep_time);
 	if (bridge->serv.flags & FLAG_SETUP_DISCONNECTONWAKE) {
 		double wake_timeout = 0;
-#if !TARGET_OS_IPHONE && !TARGET_IPHONE_SIMULATOR
+#if TARGET_OS_OSX
 		wake_timeout = scnc_getsleepwaketimeout(&bridge->serv);
 #endif
 
@@ -471,7 +484,7 @@ bridge_get_security_session_info(ne_sm_bridge_t bridge, xpc_object_t request, ma
 	xpc_object_t entitlement = xpc_connection_copy_entitlement_value(connection, NESessionManagerPrivilegedEntitlement);
     
 	if ((bridge->type == NESMBridgeTypeL2TP || bridge->type == NESMBridgeTypePPTP) &&
-	    isa_xpc_bool(entitlement) && xpc_bool_get_value(entitlement))
+	    entitlement != NULL && xpc_get_type(entitlement) == XPC_TYPE_BOOL && xpc_bool_get_value(entitlement))
 	{
 		*bootstrap_port = bridge->serv.bootstrap;
 		*audit_session_port = bridge->serv.au_session;
@@ -497,7 +510,7 @@ bridge_copy_configuration(ne_sm_bridge_t bridge, xpc_object_t request)
 	if (bridge->type == NESMBridgeTypeL2TP || bridge->type == NESMBridgeTypePPTP) {
 		xpc_object_t entitlement = xpc_connection_copy_entitlement_value(connection, NESessionManagerPrivilegedEntitlement);
 
-		if (isa_xpc_bool(entitlement) && xpc_bool_get_value(entitlement))
+		if (entitlement != NULL && xpc_get_type(entitlement) == XPC_TYPE_BOOL && xpc_bool_get_value(entitlement))
 		{
 			error = ppp_getconnectdata(&bridge->serv, &userOptions, true);
 		} else {
@@ -699,6 +712,7 @@ ne_sm_bridge_copy_functions(struct ne_sm_bridge_callbacks *callbacks, CFBundleRe
 			functions->handle_user_switch = bridge_handle_user_switch;
 			functions->handle_device_lock = bridge_handle_device_lock;
 			functions->handle_device_unlock = bridge_handle_device_unlock;
+			functions->set_initial_values = bridge_set_initial_values;
 
 			g_callbacks = (struct ne_sm_bridge_callbacks *)malloc(sizeof(*g_callbacks));
 			memcpy(g_callbacks, callbacks, sizeof(*g_callbacks));
