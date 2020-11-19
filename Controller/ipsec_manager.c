@@ -57,6 +57,7 @@ includes
 #include <netinet/in_var.h>
 #include <ifaddrs.h>
 #include <sys/sysctl.h>
+#include <nelog.h>
 
 #include <CoreFoundation/CFUserNotification.h>
 #include <SystemConfiguration/SystemConfiguration.h>
@@ -90,9 +91,6 @@ includes
 
 #include "../Helpers/vpnd/RASSchemaDefinitions.h"
 #include "../Helpers/vpnd/ipsec_utils.h"
-
-#include "sessionTracer.h"
-
 
 
 /* -----------------------------------------------------------------------------
@@ -141,6 +139,8 @@ enum {
 
 #define kIPSecRemoteAddress					CFSTR("RemoteAddress")
 #define kIPSecRemoteAddressNAT64Prefix		CFSTR("RemoteAddressNAT64Prefix")
+
+#define IPSECLOGASLMSG(format, args...) os_log(ne_log_obj(), format, ##args);
 
 struct isakmp_xauth {
 	u_int16_t	type;
@@ -958,10 +958,24 @@ static int process_xauth_need_info(struct service *serv)
 	{
 		int tlv;
 		u_int16_t type;
-		
+
+		if (tlen < sizeof(struct isakmp_data)) {
+			ipsec_log(LOG_ERR, CFSTR("IPSec Controller: invalid length of isakmp data, expected %zu actual %d"),
+					  sizeof(struct isakmp_data), tlen);
+			goto fail;
+		}
+
 		attr = ALIGNED_CAST(struct isakmp_data *)dataptr;
 		type = ntohs(attr->type) & 0x7FFF;
 		tlv = (type ==  ntohs(attr->type));
+
+		if (tlv) {
+			if (tlen < (sizeof(struct isakmp_data) + ntohs(attr->lorv))) {
+				ipsec_log(LOG_ERR, CFSTR("IPSec Controller: invalid length of xauth message, expected %zu actual %d"),
+						  (sizeof(struct isakmp_data) + ntohs(attr->lorv)), tlen);
+				goto fail;
+			}
+		}
 		
 		switch (type)
 		{
@@ -1267,10 +1281,24 @@ static void print_racoon_msg(struct service *serv)
 					int tlv;
 					u_int16_t type;
 					struct isakmp_data attr;
+
+					if (tlen < sizeof(struct isakmp_data)) {
+						ipsec_log(LOG_ERR, CFSTR("IPSec Controller: invalid length of isakmp data, expected %zu actual %d"),
+								  sizeof(struct isakmp_data), tlen);
+						break;
+					}
                     
                     memcpy(&attr, dataptr, sizeof(attr));   // Wcast-align fix - memcpy for unaligned access
 					type = ntohs(attr.type) & 0x7FFF;
 					tlv = (type ==  ntohs(attr.type));
+
+					if (tlv) {
+						if (tlen < (sizeof(struct isakmp_data) + ntohs(attr.lorv))) {
+							ipsec_log(LOG_ERR, CFSTR("IPSec Controller: invalid length of xauth message, expected %zu actual %d"),
+									  (sizeof(struct isakmp_data) + ntohs(attr.lorv)), tlen);
+							break;
+						}
+					}
 
 					ipsec_log(LOG_NOTICE, CFSTR("IPSec Controller:	XAuth Attribute Type = %d (%s)"), type, ipsec_xauthtype_to_str(type));
 					if (tlv) {
@@ -2110,7 +2138,7 @@ static void install_mode_config(struct service *serv, Boolean installConfig, Boo
 		serv->u.ipsec.inner_local_mask = internal_ip4_netmask;
 
 		/* create the virtual interface */
-		serv->u.ipsec.kernctl_sock = create_tun_interface(serv->if_name, sizeof(serv->if_name), &serv->if_index, UTUN_FLAGS_NO_INPUT + UTUN_FLAGS_NO_OUTPUT, 0);
+		serv->u.ipsec.kernctl_sock = create_tun_interface(serv->if_name, sizeof(serv->if_name), &serv->if_index, UTUN_FLAGS_NO_INPUT | UTUN_FLAGS_NO_OUTPUT, 0);
 		if (serv->u.ipsec.kernctl_sock == -1) {
 			ipsec_log(LOG_ERR, CFSTR("IPSec Controller: cannot create tunnel interface"));
 			goto fail;
@@ -2996,10 +3024,13 @@ void dns_start_query_callback(int32_t status, struct addrinfo *res, void *contex
 		CFMutableArrayRef	addresses;
 		addresses = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
 
+		CFMutableArrayRef	fallback_addresses;
+		fallback_addresses = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+
 		for (resP = res; resP; resP = resP->ai_next) {
 			CFDataRef	newAddress;
 
-			if (resP->ai_addr->sa_family == AF_INET && nat64_prefixes == 0) {
+			if (resP->ai_addr->sa_family == AF_INET) {
 				/* make sure it will fit... */
 				if (resP->ai_addr->sa_len > sizeof(struct sockaddr_in)) {
 					continue;
@@ -3015,7 +3046,17 @@ void dns_start_query_callback(int32_t status, struct addrinfo *res, void *contex
 					CFDictionarySetValue(newAddressDict, kIPSecRemoteAddress, newAddress);
 					CFRelease(newAddress);
 
-					CFArrayAppendValue(addresses, newAddressDict);
+					if (nat64_prefixes > 0) {
+						CFDataRef newNAT64Prefix = CFDataCreate(kCFAllocatorDefault, (void *)&prefixes[0], sizeof(nw_nat64_prefix_t));
+						if (newNAT64Prefix != NULL) {
+							CFDictionarySetValue(newAddressDict, kIPSecRemoteAddressNAT64Prefix, newNAT64Prefix);
+							CFArrayAppendValue(fallback_addresses, newAddressDict);
+							CFRelease(newNAT64Prefix);
+						}
+					} else {
+						CFArrayAppendValue(addresses, newAddressDict);
+					}
+
 					CFRelease(newAddressDict);
 				}
 			} else if (resP->ai_addr->sa_family == AF_INET6 && nat64_prefixes > 0) {
@@ -3071,10 +3112,19 @@ void dns_start_query_callback(int32_t status, struct addrinfo *res, void *contex
 		my_CFRelease(&serv->u.ipsec.resolvedAddress);
 		serv->u.ipsec.resolvedAddress      = addresses;
 		serv->u.ipsec.resolvedAddressError = NETDB_SUCCESS;
+
+		if ((CFArrayGetCount(serv->u.ipsec.resolvedAddress) == 0) && (nat64_prefixes > 0)) {
+			ipsec_log(LOG_NOTICE, CFSTR("IPSec Controller: dns reply: no synthesized IPv6 address in reply on NAT64 network"));
+			my_CFRelease(&serv->u.ipsec.resolvedAddress);
+			serv->u.ipsec.resolvedAddress = fallback_addresses;
+		} else {
+			CFRelease(fallback_addresses);
+		}
 		
 		ipsec_log(LOG_DEBUG, CFSTR("IPSec Controller: dns reply: resolvedAddress %@"), serv->u.ipsec.resolvedAddress);
 
-		if (!CFArrayGetCount(serv->u.ipsec.resolvedAddress)) {
+		if (CFArrayGetCount(serv->u.ipsec.resolvedAddress) == 0) {
+			my_CFRelease(&serv->u.ipsec.resolvedAddress);
 			ipsec_log(LOG_ERR, CFSTR("IPSec Controller: dns reply: no IPv4 address in reply"));
 			goto fail;
 		}

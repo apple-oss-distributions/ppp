@@ -1,13 +1,13 @@
-/* 
+/*
     This file contains the version number of the ppp package.
     it follows the cvs tag, allow easy tracking ppp sources and
-    must be changed before every tagging and submission 
+    must be changed before every tagging and submission
 
 */
 
 
 /* Current release of ppp, MUST be changed before submission */
-#define CURRENT_RELEASE_TAG		"862"
+#define CURRENT_RELEASE_TAG		"877.40.2"
 
 /* Current working tag */
 #define CURRENT_DEVELOPMENT_TAG		"3468584"
